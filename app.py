@@ -1836,7 +1836,7 @@ with gr.Blocks(title="AI Saad • Smart Nutrition Coach") as demo:
             <div id="clerk-user-button-mount"></div>
         </div>
         <h1 class="header-title" style="cursor: pointer;" onclick="switchGradioTab('Home')">🥗 AI Saad • Smart Nutrition Coach</h1>
-        <p class="header-subtitle">Powered by Multi-Agent AI (CrewAI + IBM Watsonx). Upload a meal or fridge photo to receive instant recipe suggestions, macro breakdowns, and personalized dietary guidance.</p>
+        <p class="header-subtitle">Powered by Multi-Agent AI (CrewAI). Upload a meal or fridge photo to receive instant recipe suggestions, macro breakdowns, and personalized dietary guidance.</p>
     </div>
     """)
 

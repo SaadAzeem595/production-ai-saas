@@ -9,21 +9,20 @@ from src.tools import (
     DietaryFilterTool,
     NutrientAnalysisTool
 )
-from ibm_watsonx_ai import Credentials, APIClient
 from src.models import RecipeSuggestionOutput, NutrientAnalysisOutput 
 from dotenv import load_dotenv
 load_dotenv()
 
-watsonx_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-watsonx_apikey = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY", ""))
-project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
+# watsonx_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
+# watsonx_apikey = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY", ""))
+# project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
 
-cred_args = {"url": watsonx_url}
-if watsonx_apikey:
-    cred_args["api_key"] = watsonx_apikey
+# cred_args = {"url": watsonx_url}
+# if watsonx_apikey:
+#     cred_args["api_key"] = watsonx_apikey
 
-credentials = Credentials(**cred_args)
-client = APIClient(credentials) if watsonx_apikey else None
+# credentials = Credentials(**cred_args)
+# client = APIClient(credentials) if watsonx_apikey else None
 
 
 def get_agent_llm() -> LLM:

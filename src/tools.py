@@ -4,8 +4,7 @@ import base64
 import requests
 from crewai.tools import tool
 from PIL import Image
-from ibm_watsonx_ai import Credentials, APIClient
-from ibm_watsonx_ai.foundation_models import ModelInference
+import litellm
 from io import BytesIO
 from typing import List, Optional, Any
 import logging
@@ -17,26 +16,14 @@ load_dotenv()
 # Configuration Settings
 llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
 
-# IBM Watsonx AI Settings
-watsonx_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-watsonx_apikey = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY", ""))
-project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
-
 # Ollama Settings
 ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2")
 ollama_vision_model = os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision")
 
-cred_args = {"url": watsonx_url}
-if watsonx_apikey:
-    cred_args["api_key"] = watsonx_apikey
-
-credentials = Credentials(**cred_args) if watsonx_apikey else None
-client = APIClient(credentials) if watsonx_apikey else None
-
 
 def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
-    """Helper to route vision LLM calls to either IBM Watsonx or Ollama"""
+    """Helper to route vision LLM calls to different providers"""
     if llm_provider == "ollama":
         url = f"{ollama_host.rstrip('/')}/api/chat"
         models_to_try = [ollama_vision_model, "llama3.2-vision", "llama3.2-vision:latest", "llava"]
@@ -65,17 +52,53 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                 last_error = str(e)
                 
         raise RuntimeError(f"Ollama Vision error: {last_error}.")
-    else:
-        logging.info("Calling IBM Watsonx Vision model...")
-        if not credentials:
-            raise RuntimeError("IBM_WATSONX_APIKEY is required when using watsonx provider.")
-        model = ModelInference(
-            model_id="meta-llama/llama-3-2-90b-vision-instruct",
-            credentials=credentials,
-            project_id=project_id,
-            params={"max_tokens": 300},
+    elif llm_provider == "gemini":
+        logging.info("Calling Gemini Vision model...")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
+        response = litellm.completion(
+            model="gemini/gemini-1.5-flash",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
+                    ]
+                }
+            ],
+            api_key=api_key
         )
-        response = model.chat(
+        return response.choices[0].message.content
+    elif llm_provider == "groq":
+        logging.info("Calling Groq Vision model...")
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is required when using groq provider.")
+        response = litellm.completion(
+            model="groq/llama-3.2-11b-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
+                    ]
+                }
+            ],
+            api_key=api_key
+        )
+        return response.choices[0].message.content
+    elif llm_provider == "watsonx":
+        logging.info("Calling IBM Watsonx Vision model...")
+        api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
+        project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
+        base_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
+        if not api_key:
+            raise RuntimeError("IBM_WATSONX_APIKEY is required when using watsonx provider.")
+        response = litellm.completion(
+            model="watsonx/meta-llama/llama-3-2-90b-vision-instruct",
             messages=[
                 {
                     "role": "user",
@@ -84,13 +107,18 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                         {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded_image_base64}}
                     ],
                 }
-            ]
+            ],
+            api_key=api_key,
+            api_base=base_url,
+            project_id=project_id
         )
-        return response['choices'][0]['message']['content']
+        return response.choices[0].message.content
+    else:
+        raise ValueError(f"Unsupported LLM provider for vision: {llm_provider}")
 
 
 def call_llm_text(prompt_text: str) -> str:
-    """Helper to route text LLM calls to either IBM Watsonx or Ollama"""
+    """Helper to route text LLM calls to various providers"""
     if llm_provider == "ollama":
         logging.info(f"Calling Ollama Text model: {ollama_model} at {ollama_host}")
         url = f"{ollama_host.rstrip('/')}/api/chat"
@@ -109,25 +137,50 @@ def call_llm_text(prompt_text: str) -> str:
             return res.json()["message"]["content"]
         else:
             raise RuntimeError(f"Ollama Error ({res.status_code}): {res.text}")
-    else:
-        logging.info("Calling IBM Watsonx Text model...")
-        if not credentials:
-            raise RuntimeError("IBM_WATSONX_APIKEY is required when using watsonx provider.")
-        model = ModelInference(
-            model_id="ibm/granite-4-h-small",
-            credentials=credentials,
-            project_id=project_id,
-            params={"max_tokens": 150},
+    elif llm_provider == "gemini":
+        logging.info("Calling Gemini Text model...")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
+        response = litellm.completion(
+            model="gemini/gemini-1.5-flash",
+            messages=[{"role": "user", "content": prompt_text}],
+            api_key=api_key
         )
-        response = model.chat(
+        return response.choices[0].message.content
+    elif llm_provider == "groq":
+        logging.info("Calling Groq Text model...")
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is required when using groq provider.")
+        response = litellm.completion(
+            model="groq/llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt_text}],
+            api_key=api_key
+        )
+        return response.choices[0].message.content
+    elif llm_provider == "watsonx":
+        logging.info("Calling IBM Watsonx Text model...")
+        api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
+        project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
+        base_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
+        if not api_key:
+            raise RuntimeError("IBM_WATSONX_APIKEY is required when using watsonx provider.")
+        response = litellm.completion(
+            model="watsonx/ibm/granite-4-h-small",
             messages=[
                 {
                     "role": "user",
                     "content": [{"type": "text", "text": prompt_text}],
                 }
-            ]
+            ],
+            api_key=api_key,
+            api_base=base_url,
+            project_id=project_id
         )
-        return response['choices'][0]['message']['content']
+        return response.choices[0].message.content
+    else:
+        raise ValueError(f"Unsupported LLM provider for text: {llm_provider}")
 
 
 @tool("Extract ingredients")
