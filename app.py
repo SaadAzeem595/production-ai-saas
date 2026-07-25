@@ -943,17 +943,58 @@ else:
                                             colorInputBackground: '#0f172a',
                                             colorInputText: '#f8fafc',
                                             colorBorder: '#334155',
-                                            borderRadius: '12px'
+                                            borderRadius: '16px'
                                         },
                                         elements: {
-                                            avatarBox: "w-8 h-8 rounded-full border border-emerald-500/50 hover:scale-105 transition-transform",
-                                            userButtonPopoverCard: "bg-slate-800 border border-slate-700/50 shadow-2xl",
-                                            userButtonPopoverActionButton: "hover:bg-slate-700/50 text-slate-200",
-                                            userButtonPopoverActionButtonText: "text-slate-200",
-                                            userButtonPopoverActionButtonIcon: "text-slate-400",
-                                            userButtonPopoverFooter: "bg-slate-900/50 border-t border-slate-700/50",
-                                            userPreviewSecondaryIdentifier: "text-slate-400",
-                                            userPreviewMainIdentifier: "text-slate-100 font-semibold"
+                                            avatarBox: {
+                                                width: '32px',
+                                                height: '32px',
+                                                borderRadius: '9999px',
+                                                border: '2px solid rgba(16, 185, 129, 0.6)',
+                                                boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)',
+                                                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                                                '&:hover': {
+                                                    transform: 'scale(1.05)',
+                                                    boxShadow: '0 0 15px rgba(16, 185, 129, 0.7)'
+                                                }
+                                            },
+                                            userButtonPopoverCard: {
+                                                background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95))',
+                                                backdropFilter: 'blur(20px)',
+                                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.15)',
+                                                borderRadius: '16px',
+                                                overflow: 'hidden'
+                                            },
+                                            userButtonPopoverActionButton: {
+                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                borderRadius: '8px',
+                                                padding: '8px 12px',
+                                                '&:hover': {
+                                                    background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.15), rgba(59, 130, 246, 0.08))',
+                                                    transform: 'translateX(4px)'
+                                                }
+                                            },
+                                            userButtonPopoverActionButtonText: {
+                                                color: '#f8fafc',
+                                                fontWeight: '500'
+                                            },
+                                            userButtonPopoverActionButtonIcon: {
+                                                color: '#10b981',
+                                                filter: 'drop-shadow(0 0 2px rgba(16, 185, 129, 0.3))'
+                                            },
+                                            userButtonPopoverFooter: {
+                                                background: 'rgba(15, 23, 42, 0.7)',
+                                                borderTop: '1px solid rgba(16, 185, 129, 0.15)',
+                                                padding: '12px'
+                                            },
+                                            userPreviewMainIdentifier: {
+                                                color: '#f8fafc',
+                                                fontWeight: '600'
+                                            },
+                                            userPreviewSecondaryIdentifier: {
+                                                color: '#94a3b8'
+                                            }
                                         }
                                     }
                                 });
