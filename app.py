@@ -935,8 +935,25 @@ else:
                                 clearInterval(mountInterval);
                                 clerk.mountUserButton(mountPoint, {
                                     appearance: {
+                                        variables: {
+                                            colorPrimary: '#10b981',
+                                            colorBackground: '#1e293b',
+                                            colorText: '#f8fafc',
+                                            colorTextSecondary: '#94a3b8',
+                                            colorInputBackground: '#0f172a',
+                                            colorInputText: '#f8fafc',
+                                            colorBorder: '#334155',
+                                            borderRadius: '12px'
+                                        },
                                         elements: {
-                                            avatarBox: "w-8 h-8 rounded-full border border-emerald-500/50 hover:scale-105 transition-transform"
+                                            avatarBox: "w-8 h-8 rounded-full border border-emerald-500/50 hover:scale-105 transition-transform",
+                                            userButtonPopoverCard: "bg-slate-800 border border-slate-700/50 shadow-2xl",
+                                            userButtonPopoverActionButton: "hover:bg-slate-700/50 text-slate-200",
+                                            userButtonPopoverActionButtonText: "text-slate-200",
+                                            userButtonPopoverActionButtonIcon: "text-slate-400",
+                                            userButtonPopoverFooter: "bg-slate-900/50 border-t border-slate-700/50",
+                                            userPreviewSecondaryIdentifier: "text-slate-400",
+                                            userPreviewMainIdentifier: "text-slate-100 font-semibold"
                                         }
                                     }
                                 });
