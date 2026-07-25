@@ -1,0 +1,23 @@
+# Environments
+venv/
+.env
+*.env.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# User uploads & runtime temp files
+uploaded_image.jpg
+*.log
+
+# Tar files (extracted into directories)
+config.tar
+examples.tar
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
