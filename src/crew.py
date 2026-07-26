@@ -2,6 +2,18 @@ import os
 import yaml
 import base64
 from crewai import Agent, Crew, Process, Task, LLM
+import crewai.llms.cache as _crewai_cache
+# Disable cache_breakpoint flag injection for incompatible providers like Groq
+_crewai_cache.mark_cache_breakpoint = lambda msg: msg
+
+# Disable native function calling for Groq models due to tool_use_failed errors
+_original_supports_function_calling = LLM.supports_function_calling
+def _custom_supports_function_calling(self) -> bool:
+    if "groq" in getattr(self, "model", "").lower() or getattr(self, "provider", "").lower() == "groq":
+        return False
+    return _original_supports_function_calling(self)
+LLM.supports_function_calling = _custom_supports_function_calling
+
 from crewai.project import CrewBase, agent, crew, task
 from src.tools import (
     ExtractIngredientsTool, 
@@ -28,25 +40,36 @@ load_dotenv()
 def get_agent_llm() -> LLM:
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     
-    if provider == "groq" and os.getenv("GROQ_API_KEY"):
-        return LLM(model="groq/llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
-    elif provider == "gemini" and os.getenv("GEMINI_API_KEY"):
-        return LLM(model="gemini/gemini-1.5-flash", api_key=os.getenv("GEMINI_API_KEY"))
-    elif provider == "watsonx" and (os.getenv("IBM_WATSONX_APIKEY") or os.getenv("WATSONX_APIKEY")):
+    if provider == "groq":
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            raise RuntimeError("GROQ_API_KEY is required when using groq provider.")
+        return LLM(model="groq/llama-3.3-70b-versatile", api_key=api_key)
+    elif provider == "gemini":
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
+        return LLM(model="gemini/gemini-1.5-flash", api_key=api_key)
+    elif provider == "watsonx":
+        api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
+        if not api_key:
+            raise RuntimeError("IBM_WATSONX_APIKEY or WATSONX_APIKEY is required when using watsonx provider.")
         return LLM(
             model="watsonx/ibm/granite-3-8b-instruct",
-            api_key=os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY")),
+            api_key=api_key,
             base_url=os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com"),
             project_id=os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
         )
-    else:
-        # Default fallback to local Ollama (100% free, no API key required)
+    elif provider == "ollama":
+        # Default local Ollama (100% free, no API key required)
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         model = os.getenv("OLLAMA_MODEL", "llama3.2")
         return LLM(
             model=f"ollama/{model}",
             base_url=host
         )
+    else:
+        raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
 # Get the absolute path to the config directory (located at root)

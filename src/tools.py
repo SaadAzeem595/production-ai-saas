@@ -15,6 +15,7 @@ load_dotenv()
 
 # Configuration Settings
 llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
+vision_provider = os.getenv("VISION_PROVIDER", llm_provider).lower()
 
 # Ollama Settings
 ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -24,7 +25,25 @@ ollama_vision_model = os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision")
 
 def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
     """Helper to route vision LLM calls to different providers"""
-    if llm_provider == "ollama":
+    selected_provider = vision_provider
+    if selected_provider == "groq":
+        if os.getenv("GEMINI_API_KEY"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to Gemini...")
+            selected_provider = "gemini"
+        elif os.getenv("IBM_WATSONX_APIKEY") or os.getenv("WATSONX_APIKEY"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to Watsonx...")
+            selected_provider = "watsonx"
+        elif os.getenv("OLLAMA_HOST"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to Ollama...")
+            selected_provider = "ollama"
+        else:
+            raise RuntimeError(
+                "Groq has decommissioned all vision models. To analyze images in production, "
+                "please configure GEMINI_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
+                "The application will automatically use the configured provider for image analysis while keeping Groq as the main text LLM."
+            )
+
+    if selected_provider == "ollama":
         url = f"{ollama_host.rstrip('/')}/api/chat"
         models_to_try = [ollama_vision_model, "llama3.2-vision", "llama3.2-vision:latest", "llava"]
         
@@ -52,7 +71,7 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                 last_error = str(e)
                 
         raise RuntimeError(f"Ollama Vision error: {last_error}.")
-    elif llm_provider == "gemini":
+    elif selected_provider == "gemini":
         logging.info("Calling Gemini Vision model...")
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -71,7 +90,7 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
             api_key=api_key
         )
         return response.choices[0].message.content
-    elif llm_provider == "groq":
+    elif selected_provider == "groq":
         logging.info("Calling Groq Vision model...")
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
@@ -90,7 +109,7 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
             api_key=api_key
         )
         return response.choices[0].message.content
-    elif llm_provider == "watsonx":
+    elif selected_provider == "watsonx":
         logging.info("Calling IBM Watsonx Vision model...")
         api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
         project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
@@ -114,7 +133,8 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         )
         return response.choices[0].message.content
     else:
-        raise ValueError(f"Unsupported LLM provider for vision: {llm_provider}")
+        raise ValueError(f"Unsupported LLM provider for vision: {selected_provider}")
+
 
 
 def call_llm_text(prompt_text: str) -> str:
