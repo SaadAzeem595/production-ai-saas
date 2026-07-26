@@ -30,6 +30,9 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         if os.getenv("GEMINI_API_KEY"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Gemini...")
             selected_provider = "gemini"
+        elif os.getenv("GITHUB_API_KEY") or os.getenv("GITHUB_TOKEN"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to GitHub Models...")
+            selected_provider = "github"
         elif os.getenv("IBM_WATSONX_APIKEY") or os.getenv("WATSONX_APIKEY"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Watsonx...")
             selected_provider = "watsonx"
@@ -39,7 +42,7 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         else:
             raise RuntimeError(
                 "Groq has decommissioned all vision models. To analyze images in production, "
-                "please configure GEMINI_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
+                "please configure GEMINI_API_KEY, GITHUB_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
                 "The application will automatically use the configured provider for image analysis while keeping Groq as the main text LLM."
             )
 
@@ -132,6 +135,26 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
             project_id=project_id
         )
         return response.choices[0].message.content
+    elif selected_provider == "github":
+        logging.info("Calling GitHub Models Vision model (gpt-4o-mini)...")
+        api_key = os.getenv("GITHUB_API_KEY", os.getenv("GITHUB_TOKEN"))
+        if not api_key:
+            raise RuntimeError("GITHUB_API_KEY or GITHUB_TOKEN is required when using github provider.")
+        response = litellm.completion(
+            model="openai/gpt-4o-mini",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
+                    ]
+                }
+            ],
+            api_key=api_key,
+            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
+        )
+        return response.choices[0].message.content
     else:
         raise ValueError(f"Unsupported LLM provider for vision: {selected_provider}")
 
@@ -199,12 +222,24 @@ def call_llm_text(prompt_text: str) -> str:
             project_id=project_id
         )
         return response.choices[0].message.content
+    elif llm_provider == "github":
+        logging.info("Calling GitHub Models Text model (gpt-4o-mini)...")
+        api_key = os.getenv("GITHUB_API_KEY", os.getenv("GITHUB_TOKEN"))
+        if not api_key:
+            raise RuntimeError("GITHUB_API_KEY or GITHUB_TOKEN is required when using github provider.")
+        response = litellm.completion(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt_text}],
+            api_key=api_key,
+            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
+        )
+        return response.choices[0].message.content
     else:
         raise ValueError(f"Unsupported LLM provider for text: {llm_provider}")
 
 
 @tool("Extract ingredients")
-def _extract_ingredient_fn(image_input: Any = None, **kwargs) -> str:
+def _extract_ingredient_fn(image_input: str = None, **kwargs) -> str:
     """Extract ingredients from a food item image. Pass the image path as 'image_input'."""
     val = image_input
     if val is None:
@@ -236,7 +271,7 @@ class ExtractIngredientsTool:
 
 
 @tool("Filter ingredients")
-def _filter_ingredients_fn(raw_ingredients: Any = None, **kwargs) -> str:
+def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
     """Processes raw ingredient data (either as a list or a text block/string) and filters out non-food items or noise.
     Returns a clean, comma-separated string of ingredients."""
     val = raw_ingredients
@@ -271,7 +306,7 @@ class FilterIngredientsTool:
 
 
 @tool("Filter based on dietary restrictions")
-def _filter_based_on_restrictions_fn(ingredients: Any = None, dietary_restrictions: Optional[str] = None, **kwargs) -> str:
+def _filter_based_on_restrictions_fn(ingredients: str = None, dietary_restrictions: Optional[str] = None, **kwargs) -> str:
     """Uses an LLM model to filter ingredients based on dietary restrictions.
     Accepts ingredients (either a list of strings or a comma-separated string) and dietary_restrictions,
     and returns only the compliant ingredients as a clean comma-separated string."""
@@ -310,7 +345,7 @@ class DietaryFilterTool:
 
 
 @tool("Analyze nutritional values and calories of the dish from uploaded image")
-def _analyze_image_fn(image_input: Any = None, **kwargs) -> str:
+def _analyze_image_fn(image_input: str = None, **kwargs) -> str:
     """Provide a detailed nutrient breakdown and estimate the total calories of all ingredients from the uploaded image. Pass the image path as 'image_input'."""
     val = image_input
     if val is None:
