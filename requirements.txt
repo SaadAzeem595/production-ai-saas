@@ -10,3 +10,4 @@ pydantic>=2.0.0
 langchain>=0.3.0
 stripe>=8.0.0
 litellm>=1.91.4
+google-genai>=1.0.0
