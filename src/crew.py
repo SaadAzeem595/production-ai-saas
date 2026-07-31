@@ -38,6 +38,11 @@ load_dotenv()
 
 
 def get_agent_llm() -> LLM:
+    print("=" * 50)
+    print("LLM_PROVIDER =", os.getenv("LLM_PROVIDER"))
+    print("GITHUB_BASE_URL =", os.getenv("GITHUB_BASE_URL"))
+    print("GITHUB_API_KEY exists =", bool(os.getenv("GITHUB_API_KEY")))
+    print("=" * 50)
     provider = os.getenv("LLM_PROVIDER", "ollama").lower()
     
     if provider == "groq":
@@ -61,14 +66,12 @@ def get_agent_llm() -> LLM:
             project_id=os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
         )
     elif provider == "github":
-        api_key = os.getenv("GITHUB_API_KEY", os.getenv("GITHUB_TOKEN"))
-        if not api_key:
-            raise RuntimeError("GITHUB_API_KEY or GITHUB_TOKEN is required when using github provider.")
+        api_key = os.getenv("GITHUB_API_KEY")
         return LLM(
-            model="openai/gpt-4o-mini",
+            model="github/gpt-4o-mini",
             api_key=api_key,
-            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
-        )
+            base_url="https://models.inference.ai.azure.com"
+    )
     elif provider == "ollama":
         # Default local Ollama (100% free, no API key required)
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")

@@ -13,7 +13,7 @@ try:
     
     print("Testing GPT-4o mini vision completion via GitHub Models...")
     response = litellm.completion(
-        model="openai/gpt-4o-mini",
+        model="gpt-4o-mini",
         messages=[
             {
                 "role": "user",

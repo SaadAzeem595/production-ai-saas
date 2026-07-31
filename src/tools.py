@@ -141,7 +141,7 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         if not api_key:
             raise RuntimeError("GITHUB_API_KEY or GITHUB_TOKEN is required when using github provider.")
         response = litellm.completion(
-            model="openai/gpt-4o-mini",
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "user",
@@ -228,7 +228,7 @@ def call_llm_text(prompt_text: str) -> str:
         if not api_key:
             raise RuntimeError("GITHUB_API_KEY or GITHUB_TOKEN is required when using github provider.")
         response = litellm.completion(
-            model="openai/gpt-4o-mini",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt_text}],
             api_key=api_key,
             base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
