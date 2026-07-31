@@ -6,10 +6,14 @@ import crewai.llms.cache as _crewai_cache
 # Disable cache_breakpoint flag injection for incompatible providers like Groq
 _crewai_cache.mark_cache_breakpoint = lambda msg: msg
 
-# Disable native function calling for Groq models due to tool_use_failed errors
+# Disable native function calling for Groq and OpenRouter models due to tool_use_failed and schema validation errors
 _original_supports_function_calling = LLM.supports_function_calling
 def _custom_supports_function_calling(self) -> bool:
-    if "groq" in getattr(self, "model", "").lower() or getattr(self, "provider", "").lower() == "groq":
+    model_str = getattr(self, "model", "").lower()
+    provider_str = getattr(self, "provider", "").lower()
+    if "groq" in model_str or provider_str == "groq":
+        return False
+    if "openrouter" in model_str or provider_str == "openrouter":
         return False
     return _original_supports_function_calling(self)
 LLM.supports_function_calling = _custom_supports_function_calling
@@ -73,6 +77,15 @@ def get_agent_llm() -> LLM:
             api_key=api_key,
             base_url="https://models.inference.ai.azure.com"
     )
+    elif provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
+        openrouter_model = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
+        return LLM(
+            model=f"openrouter/{openrouter_model}",
+            api_key=api_key
+        )
     elif provider == "ollama":
         # Default local Ollama (100% free, no API key required)
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")

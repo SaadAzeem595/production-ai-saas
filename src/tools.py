@@ -36,13 +36,16 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         elif os.getenv("IBM_WATSONX_APIKEY") or os.getenv("WATSONX_APIKEY"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Watsonx...")
             selected_provider = "watsonx"
+        elif os.getenv("OPENROUTER_API_KEY"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to OpenRouter...")
+            selected_provider = "openrouter"
         elif os.getenv("OLLAMA_HOST"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Ollama...")
             selected_provider = "ollama"
         else:
             raise RuntimeError(
                 "Groq has decommissioned all vision models. To analyze images in production, "
-                "please configure GEMINI_API_KEY, GITHUB_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
+                "please configure GEMINI_API_KEY, GITHUB_API_KEY, OPENROUTER_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
                 "The application will automatically use the configured provider for image analysis while keeping Groq as the main text LLM."
             )
 
@@ -156,6 +159,26 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
             base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
         )
         return response.choices[0].message.content
+    elif selected_provider == "openrouter":
+        logging.info("Calling OpenRouter Vision model...")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
+        openrouter_vision_model = os.getenv("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash:free")
+        response = litellm.completion(
+            model=f"openrouter/{openrouter_vision_model}",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
+                    ]
+                }
+            ],
+            api_key=api_key
+        )
+        return response.choices[0].message.content
     else:
         raise ValueError(f"Unsupported LLM provider for vision: {selected_provider}")
 
@@ -234,6 +257,18 @@ def call_llm_text(prompt_text: str) -> str:
             messages=[{"role": "user", "content": prompt_text}],
             api_key=api_key,
             base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
+        )
+        return response.choices[0].message.content
+    elif llm_provider == "openrouter":
+        logging.info("Calling OpenRouter Text model...")
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
+        openrouter_model = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
+        response = litellm.completion(
+            model=f"openrouter/{openrouter_model}",
+            messages=[{"role": "user", "content": prompt_text}],
+            api_key=api_key
         )
         return response.choices[0].message.content
     else:
