@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Successful</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #090d16;
+            color: #f8fafc;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            padding: 3rem 2rem;
+            border-radius: 24px;
+            text-align: center;
+            max-width: 450px;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.1);
+            backdrop-filter: blur(16px);
+        }
+        .icon {
+            font-size: 4rem;
+            color: #10b981;
+            margin-bottom: 1.5rem;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #34d399, #60a5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        p {
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            line-height: 1.5;
+        }
+        .btn {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 0.8rem 2rem;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+            display: inline-block;
+        }
+    </style>
+    <script>
+        setTimeout(() => {
+            window.location.href = "/";
+        }, 4000);
+    </script>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">✨</div>
+        <h1>Payment Successful!</h1>
+        <p>Thank you for your purchase. We have successfully credited <strong>{credits_to_add} credits</strong> to your account.<br><br>Redirecting you back to the app in 4 seconds...</p>
+        <a href="/" class="btn">Go to Dashboard</a>
+    </div>
+</body>
+</html>

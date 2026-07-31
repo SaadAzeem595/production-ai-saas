@@ -1,0 +1,126 @@
+<!-- Styles for Warning Overlay -->
+<style>
+/* Hide the main app container */
+gradio-app, .gradio-container, #app-container {
+    display: none !important;
+}
+
+#clerk-auth-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #0f172a;
+    font-family: 'Outfit', sans-serif;
+    padding: 20px;
+    box-sizing: border-box;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 999999;
+    overflow-y: auto;
+}
+
+.setup-warning-card {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 16px;
+    padding: 2.5rem 2rem;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+    font-family: 'Outfit', sans-serif;
+    color: #f8fafc;
+}
+
+.setup-warning-title {
+    color: #ef4444;
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.setup-warning-subtitle {
+    color: #cbd5e1;
+    font-size: 1rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.setup-steps {
+    text-align: left;
+    background: #0f172a;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    margin-bottom: 1.5rem;
+}
+
+.setup-steps ol {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: #94a3b8;
+}
+
+.setup-steps li {
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+}
+
+.setup-steps li strong {
+    color: #f8fafc;
+}
+
+.setup-code {
+    background: #1e293b;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: #34d399;
+}
+</style>
+<script>
+function showWarning() {
+    if (document.getElementById('clerk-auth-container')) return;
+    const warningContainer = document.createElement('div');
+    warningContainer.id = 'clerk-auth-container';
+    warningContainer.innerHTML = `
+        <div class="setup-warning-card">
+            <div class="setup-warning-title">
+                <span>⚠️</span> Authentication Setup Required
+            </div>
+            <div class="setup-warning-subtitle">
+                To access the AI Nutrition Coach, you need to configure your Clerk Publishable Key in your local environment.
+            </div>
+            <div class="setup-steps">
+                <ol>
+                    <li>Go to <strong><a href="https://dashboard.clerk.com" target="_blank" style="color: #34d399; text-decoration: underline;">dashboard.clerk.com</a></strong> and create an application.</li>
+                    <li>Copy your <strong>Publishable Key</strong> (typically starts with <span class="setup-code">pk_test_</span>).</li>
+                    <li>Open the file <span class="setup-code">.env</span> in the project root directory.</li>
+                    <li>Set <strong><span class="setup-code">CLERK_PUBLISHABLE_KEY=your_key_here</span></strong>.</li>
+                    <li>Restart the backend server to apply the changes.</li>
+                </ol>
+            </div>
+            <div style="text-align: center; color: #64748b; font-size: 0.85rem;">
+                The app will automatically refresh once configured successfully.
+            </div>
+        </div>
+    `;
+    document.body.appendChild(warningContainer);
+}
+
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', showWarning);
+} else {
+    showWarning();
+}
+</script>
