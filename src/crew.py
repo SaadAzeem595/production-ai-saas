@@ -54,7 +54,8 @@ def get_agent_llm() -> LLM:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
-        return LLM(model="gemini/gemini-flash-latest", api_key=api_key)
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        return LLM(model=f"gemini/{gemini_model}", api_key=api_key)
     elif provider == "watsonx":
         api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
         if not api_key:

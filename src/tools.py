@@ -79,8 +79,9 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         response = litellm.completion(
-            model="gemini/gemini-flash-latest",
+            model=f"gemini/{gemini_model}",
             messages=[
                 {
                     "role": "user",
@@ -185,8 +186,9 @@ def call_llm_text(prompt_text: str) -> str:
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         response = litellm.completion(
-            model="gemini/gemini-flash-latest",
+            model=f"gemini/{gemini_model}",
             messages=[{"role": "user", "content": prompt_text}],
             api_key=api_key
         )
