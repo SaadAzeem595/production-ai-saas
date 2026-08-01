@@ -1,4 +1,4 @@
-# 🥗 AI Nutrition Coach Agent (Multi-Agent System using CrewAI)
+# 🥗 AI Saad — Production-Ready Multi-Agent AI Nutrition Coach
 
 An AI-powered Nutrition Coach built with CrewAI that analyzes food images, detects ingredients, filters them based on dietary restrictions, suggests recipes, and provides nutrient analysis.
 
@@ -24,7 +24,7 @@ This project demonstrates the use of Agentic AI and multi-agent collaboration to
 
 # 📖 Overview
 
-AI Saad is a production-ready AI SaaS application that helps users analyze food images, understand nutritional information, and generate healthy recipes using a Multi-Agent AI workflow powered by CrewAI.
+AI Saad is a production-ready AI SaaS application that helps users analyze food images, understand nutritional information, and generate healthy recipes using a CrewAI-powered Multi-Agent workflow with OpenRouter LLMs for intelligent ingredient detection, nutrition analysis, and personalized recipe generation.
 
 Simply upload a meal or refrigerator image, and AI Saad automatically:
 
@@ -43,11 +43,12 @@ Unlike the original IBM watsonx academic project, this version has been complete
 ## 🤖 AI Features
 
 - Multi-Agent AI Architecture (CrewAI)
-- Ingredient Detection
-- Nutrition Analysis
-- Healthy Recipe Generation
+- Image-based Ingredient Detection
+- AI-powered Nutrition Analysis
+- Personalized Healthy Recipe Generation
 - Dietary Restriction Filtering
-- Structured JSON Outputs
+- Structured JSON Responses
+- Vision + Language AI Pipeline
 - OpenRouter API Integration
 - Gemma 4 26B (Google DeepMind)
 - NVIDIA Nemotron Nano Vision Model
@@ -89,25 +90,49 @@ Powered by Stripe
 
 ---
 
+# 🧠 AI Models Used
+
+### Language Model
+
+- **Google Gemma 4 26B A4B IT**
+  - Provider: OpenRouter
+  - Purpose:
+    - Nutrition reasoning
+    - Recipe generation
+    - Dietary analysis
+    - Structured JSON responses
+
+### Vision Model
+
+- **NVIDIA Nemotron Nano 12B Vision**
+  - Provider: OpenRouter
+  - Purpose:
+    - Food image understanding
+    - Ingredient detection
+    - Visual analysis
+
 # 🧠 AI Workflow
 
 ```text
-          Upload Food Image
-                  │
-                  ▼
-      Ingredient Detection Agent
-                  │
-                  ▼
-      Dietary Filtering Agent
-                  │
-                  ▼
-      Nutrition Analysis Agent
-                  │
-                  ▼
-       Recipe Suggestion Agent
-                  │
-                  ▼
-        Personalized Results
+                Upload Food Image
+                        │
+                        ▼
+      NVIDIA Nemotron Nano Vision Model
+          (Ingredient Detection)
+                        │
+                        ▼
+        CrewAI Multi-Agent Workflow
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+ Dietary Agent   Nutrition Agent   Recipe Agent
+        │               │               │
+        └───────────────┼───────────────┘
+                        ▼
+      Google Gemma 4 26B via OpenRouter
+                        │
+                        ▼
+           Personalized Nutrition Report
 ```
 
 ---
