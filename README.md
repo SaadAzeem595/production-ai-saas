@@ -298,10 +298,10 @@ BS Computer Science Student
 AI Engineer | Machine Learning | Generative AI | Multi-Agent Systems
 
 GitHub:
-https://github.com/yourusername
+https://github.com/SaadAzeem595
 
 LinkedIn:
-https://linkedin.com/in/yourprofile
+https://linkedin.com/in/saad-azeem-8941bb317
 
 ---
 
