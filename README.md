@@ -11,12 +11,14 @@ This project demonstrates the use of Agentic AI and multi-agent collaboration to
 ![Railway](https://img.shields.io/badge/Deployment-Railway-purple)
 ![Clerk](https://img.shields.io/badge/Auth-Clerk-orange)
 ![Stripe](https://img.shields.io/badge/Payments-Stripe-blue)
-![GitHub Models](https://img.shields.io/badge/LLM-GitHub%20Models-black)
+![OpenRouter](https://img.shields.io/badge/OpenRouter-API-blueviolet)
+![Gemma](https://img.shields.io/badge/Model-Gemma%204%2026B-success)
+![Vision](https://img.shields.io/badge/Vision-Nemotron%20Nano-orange)
 ![License](https://img.shields.io/badge/License-MIT-success)
 
 ## 🌐 Live Demo
 
-**Website:** https://saadai.me
+**Website:** https://saadflask.me
 
 ---
 
@@ -46,7 +48,9 @@ Unlike the original IBM watsonx academic project, this version has been complete
 - Healthy Recipe Generation
 - Dietary Restriction Filtering
 - Structured JSON Outputs
-- GPT-4o Mini via GitHub Models
+- OpenRouter API Integration
+- Gemma 4 26B (Google DeepMind)
+- NVIDIA Nemotron Nano Vision Model
 
 ---
 
@@ -120,9 +124,10 @@ Powered by Stripe
 
 ## AI
 
-- GitHub Models
-- OpenAI GPT-4o Mini
-- Multi-Agent System
+- OpenRouter API
+- Google Gemma 4 26B A4B IT
+- NVIDIA Nemotron Nano 12B Vision
+- CrewAI Multi-Agent System
 - Prompt Engineering
 
 ## Authentication
@@ -169,9 +174,11 @@ This project originally used IBM watsonx credentials from the IBM RAG & Agentic 
 
 The production version includes:
 
-✅ Migrated to GitHub Models
+✅ Migrated to OpenRouter
 
-✅ GPT-4o Mini Integration
+✅ Google Gemma 4 26B Integration
+
+✅ NVIDIA Vision Model Integration
 
 ✅ Production Environment Variables
 
@@ -192,9 +199,11 @@ The production version includes:
 # ⚙️ Environment Variables
 
 ```env
-LLM_PROVIDER=github
+OPENROUTER_API_KEY=your_openrouter_api_key
 
-GITHUB_TOKEN=your_github_models_token
+OPENROUTER_MODEL=google/gemma-4-26b-a4b-it:free
+
+OPENROUTER_VISION_MODEL=nvidia/nemotron-nano-12b-v2-vl:free
 
 CLERK_PUBLISHABLE_KEY=...
 
@@ -204,7 +213,7 @@ STRIPE_SECRET_KEY=...
 
 STRIPE_PUBLISHABLE_KEY=...
 
-HOST=https://saadai.me
+HOST=https://saadflask.me
 ```
 
 ---
