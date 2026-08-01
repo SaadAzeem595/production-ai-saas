@@ -259,7 +259,7 @@ python app.py
 
 # 🌍 Live Application
 
-https://saadai.me
+https://saadflask.me
 
 ---
 
