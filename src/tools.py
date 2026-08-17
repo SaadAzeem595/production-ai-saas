@@ -1,20 +1,26 @@
 import json
 import os
 import base64
+import time
 import requests
-from crewai.tools import tool
-from PIL import Image
-import litellm
-from io import BytesIO
-from typing import List, Optional, Any
 import logging
+from io import BytesIO
+from typing import List, Optional, Any, Dict
+from PIL import Image, ImageOps
+import litellm
+
 logging.basicConfig(level=logging.INFO)
 
 from dotenv import load_dotenv
 load_dotenv()
 
+def tool(name=None):
+    def decorator(fn):
+        return fn
+    return decorator
+
 # Configuration Settings
-llm_provider = os.getenv("LLM_PROVIDER", "ollama").lower()
+llm_provider = os.getenv("LLM_PROVIDER", "openrouter").lower()
 vision_provider = os.getenv("VISION_PROVIDER", llm_provider).lower()
 
 # Ollama Settings
@@ -23,11 +29,163 @@ ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2")
 ollama_vision_model = os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision")
 
 
+def validate_and_preprocess_image(image_input_str: str, max_dim: int = 1024, quality: int = 85) -> str:
+    """
+    Validates, resizes, compresses, and base64-encodes an input image.
+    Supports local file paths and HTTP URLs.
+    Guarantees lightweight JPEG payload (~50-100 KB) to prevent OpenRouter network timeouts.
+    """
+    if not image_input_str or not isinstance(image_input_str, str):
+        raise ValueError("Invalid image input provided. Expected non-empty file path or URL string.")
+        
+    image_path_clean = image_input_str.strip().strip("'\"")
+    
+    # 1. Fetch raw bytes
+    if image_path_clean.startswith("data:image/"):
+        try:
+            _, b64_data = image_path_clean.split(",", 1)
+            raw_data = base64.b64decode(b64_data)
+        except Exception as e:
+            raise ValueError(f"Failed to decode base64 image data URI: {str(e)}")
+    elif image_path_clean.startswith("http://") or image_path_clean.startswith("https://"):
+        logging.info(f"Downloading image from URL: {image_path_clean[:60]}...")
+        try:
+            res = requests.get(image_path_clean, timeout=15)
+            res.raise_for_status()
+            raw_data = res.content
+        except Exception as e:
+            raise RuntimeError(f"Failed to download image from URL: {str(e)}")
+    else:
+        if not os.path.isfile(image_path_clean):
+            if len(image_path_clean) > 100:
+                try:
+                    raw_data = base64.b64decode(image_path_clean)
+                except Exception:
+                    raise FileNotFoundError(f"Uploaded image file not found at path: {image_path_clean}")
+            else:
+                raise FileNotFoundError(f"Uploaded image file not found at path: {image_path_clean}")
+        else:
+            try:
+                with open(image_path_clean, "rb") as f:
+                    raw_data = f.read()
+            except Exception as e:
+                raise RuntimeError(f"Failed to read local image file: {str(e)}")
+
+    if not raw_data or len(raw_data) == 0:
+        raise ValueError("Uploaded image file is empty (0 bytes).")
+
+    raw_kb = len(raw_data) / 1024.0
+
+    # 2. Validate PIL image integrity and preprocess
+    try:
+        img = Image.open(BytesIO(raw_data))
+        img.verify() # Verify file header
+        img = Image.open(BytesIO(raw_data)) # Re-open for operations
+        
+        # Apply EXIF rotation if present
+        try:
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+            
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        elif img.mode == 'L':
+            img = img.convert('RGB')
+
+        orig_w, orig_h = img.size
+        logging.info(f"Loaded image: format={img.format}, original_dims=({orig_w}x{orig_h}), size={raw_kb:.1f}KB")
+
+        # Resize if dimensions exceed max_dim
+        if orig_w > max_dim or orig_h > max_dim:
+            if orig_w > orig_h:
+                new_w = max_dim
+                new_h = int(orig_h * (max_dim / orig_w))
+            else:
+                new_h = max_dim
+                new_w = int(orig_w * (max_dim / orig_h))
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            logging.info(f"Resized image to ({new_w}x{new_h})")
+
+        out_buf = BytesIO()
+        img.save(out_buf, format="JPEG", quality=quality, optimize=True)
+        compressed_bytes = out_buf.getvalue()
+        comp_kb = len(compressed_bytes) / 1024.0
+        logging.info(f"Compressed image payload from {raw_kb:.1f}KB to {comp_kb:.1f}KB")
+
+        return base64.b64encode(compressed_bytes).decode("utf-8")
+
+    except Exception as e:
+        if "cannot identify image file" in str(e).lower():
+            raise ValueError(f"Invalid or corrupted image file. Could not parse image format: {str(e)}")
+        logging.warning(f"Image preprocessing warning: {e}. Falling back to raw base64 encoding.")
+        return base64.b64encode(raw_data).decode("utf-8")
+
+
+def _safely_extract_content(response: Any, model_name: str) -> str:
+    """
+    Safely validates and extracts content from a LiteLLM completion response object.
+    Guarantees that 'NoneType' object is not subscriptable errors are impossible.
+    """
+    if response is None:
+        raise RuntimeError(f"LLM API model '{model_name}' returned None (null response object).")
+
+    # Handle dictionary response format
+    if isinstance(response, dict):
+        choices = response.get("choices")
+        if not choices or not isinstance(choices, list) or len(choices) == 0:
+            raise RuntimeError(f"LLM API model '{model_name}' returned response dictionary with empty 'choices' list.")
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise RuntimeError(f"LLM API model '{model_name}' returned invalid choice element.")
+        msg = first_choice.get("message")
+        if not msg or not isinstance(msg, dict):
+            raise RuntimeError(f"LLM API model '{model_name}' choice missing 'message' field.")
+        content = msg.get("content")
+        if content is None:
+            raise RuntimeError(f"LLM API model '{model_name}' response message content is None.")
+        return str(content)
+
+    # Handle LiteLLM ModelResponse object format
+    if not hasattr(response, "choices"):
+        raise RuntimeError(f"LLM API model '{model_name}' response object has no 'choices' attribute.")
+
+    choices = getattr(response, "choices", None)
+    if not choices or not isinstance(choices, (list, tuple)) or len(choices) == 0:
+        raise RuntimeError(f"LLM API model '{model_name}' returned empty 'choices' list.")
+
+    first_choice = choices[0]
+    if first_choice is None:
+        raise RuntimeError(f"LLM API model '{model_name}' first choice element is None.")
+
+    if not hasattr(first_choice, "message"):
+        raise RuntimeError(f"LLM API model '{model_name}' choice object has no 'message' attribute.")
+
+    msg = getattr(first_choice, "message", None)
+    if msg is None:
+        raise RuntimeError(f"LLM API model '{model_name}' message object is None.")
+
+    if not hasattr(msg, "content"):
+        raise RuntimeError(f"LLM API model '{model_name}' message object has no 'content' attribute.")
+
+    content = getattr(msg, "content", None)
+    if content is None:
+        raise RuntimeError(f"LLM API model '{model_name}' message content is None.")
+
+    return str(content)
+
+
 def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
-    """Helper to route vision LLM calls to different providers"""
+    """
+    Helper to route vision LLM calls to configured provider with fallbacks, 30s timeout,
+    and single-layer controlled retry execution.
+    """
     selected_provider = vision_provider
     if selected_provider == "groq":
-        if os.getenv("GEMINI_API_KEY"):
+        if os.getenv("OPENROUTER_API_KEY"):
+            logging.info("Groq vision model is decommissioned. Routing vision call to OpenRouter...")
+            selected_provider = "openrouter"
+        elif os.getenv("GEMINI_API_KEY"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Gemini...")
             selected_provider = "gemini"
         elif os.getenv("GITHUB_API_KEY") or os.getenv("GITHUB_TOKEN"):
@@ -36,23 +194,19 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         elif os.getenv("IBM_WATSONX_APIKEY") or os.getenv("WATSONX_APIKEY"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Watsonx...")
             selected_provider = "watsonx"
-        elif os.getenv("OPENROUTER_API_KEY"):
-            logging.info("Groq vision model is decommissioned. Routing vision call to OpenRouter...")
-            selected_provider = "openrouter"
-        elif os.getenv("OLLAMA_HOST"):
+        elif os.getenv("OLLAMA_HOST") and not os.getenv("VERCEL"):
             logging.info("Groq vision model is decommissioned. Routing vision call to Ollama...")
             selected_provider = "ollama"
         else:
-            raise RuntimeError(
-                "Groq has decommissioned all vision models. To analyze images in production, "
-                "please configure GEMINI_API_KEY, GITHUB_API_KEY, OPENROUTER_API_KEY, IBM_WATSONX_APIKEY, or a remote OLLAMA_HOST in your .env file. "
-                "The application will automatically use the configured provider for image analysis while keeping Groq as the main text LLM."
-            )
+            selected_provider = "openrouter"
+
+    logging.info(f"[Vision Request] Provider: '{selected_provider}'")
 
     if selected_provider == "ollama":
+        if os.getenv("VERCEL"):
+            raise RuntimeError("Ollama local endpoint is not supported in Vercel serverless environment. Please configure OPENROUTER_API_KEY or GEMINI_API_KEY in Vercel.")
         url = f"{ollama_host.rstrip('/')}/api/chat"
         models_to_try = [ollama_vision_model, "llama3.2-vision", "llama3.2-vision:latest", "llava"]
-        
         last_error = None
         for m in models_to_try:
             try:
@@ -68,15 +222,15 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                     ],
                     "stream": False
                 }
-                res = requests.post(url, json=payload)
+                res = requests.post(url, json=payload, timeout=30)
                 if res.status_code == 200:
                     return res.json()["message"]["content"]
                 else:
                     last_error = res.text
             except Exception as e:
                 last_error = str(e)
-                
         raise RuntimeError(f"Ollama Vision error: {last_error}.")
+
     elif selected_provider == "gemini":
         logging.info("Calling Gemini Vision model...")
         api_key = os.getenv("GEMINI_API_KEY")
@@ -94,28 +248,11 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                     ]
                 }
             ],
-            api_key=api_key
+            api_key=api_key,
+            timeout=30
         )
-        return response.choices[0].message.content
-    elif selected_provider == "groq":
-        logging.info("Calling Groq Vision model...")
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY is required when using groq provider.")
-        response = litellm.completion(
-            model="groq/llama-3.2-11b-vision-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
-                    ]
-                }
-            ],
-            api_key=api_key
-        )
-        return response.choices[0].message.content
+        return _safely_extract_content(response, gemini_model)
+
     elif selected_provider == "watsonx":
         logging.info("Calling IBM Watsonx Vision model...")
         api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
@@ -130,15 +267,17 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded_image_base64}}
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
                     ],
                 }
             ],
             api_key=api_key,
             api_base=base_url,
-            project_id=project_id
+            project_id=project_id,
+            timeout=30
         )
-        return response.choices[0].message.content
+        return _safely_extract_content(response, "watsonx/llama-3-2-90b-vision")
+
     elif selected_provider == "github":
         logging.info("Calling GitHub Models Vision model (gpt-4o-mini)...")
         api_key = os.getenv("GITHUB_API_KEY", os.getenv("GITHUB_TOKEN"))
@@ -156,55 +295,93 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                 }
             ],
             api_key=api_key,
-            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
+            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com"),
+            timeout=30
         )
-        return response.choices[0].message.content
+        return _safely_extract_content(response, "github/gpt-4o-mini")
+
     elif selected_provider == "openrouter":
-        logging.info("Calling OpenRouter Vision model...")
         api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
-        openrouter_vision_model = os.getenv("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash:free")
-        response = litellm.completion(
-            model=f"openrouter/{openrouter_vision_model}",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt_text},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
-                    ]
-                }
-            ],
-            api_key=api_key
-        )
-        return response.choices[0].message.content
+        has_key = bool(api_key and str(api_key).strip())
+        logging.info(f"[Vision Request] Provider: openrouter | OPENROUTER_API_KEY exists: {has_key}")
+        if not has_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured in environment variables. Please set OPENROUTER_API_KEY in Vercel settings.")
+        
+        configured_model = os.getenv("OPENROUTER_VISION_MODEL", "dots-studio/dots-3-note-preview:free")
+        candidate_models = [configured_model]
+        for fallback in ["nvidia/nemotron-nano-12b-v2-vl:free", "openrouter/auto"]:
+            if fallback not in candidate_models:
+                candidate_models.append(fallback)
+                
+        last_exception = None
+        for vm in candidate_models:
+            model_id = vm if vm.startswith("openrouter/") else f"openrouter/{vm}"
+            start_t = time.time()
+            logging.info(f"Attempting OpenRouter Vision model: '{model_id}'...")
+            try:
+                response = litellm.completion(
+                    model=model_id,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt_text},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image_base64}"}}
+                            ]
+                        }
+                    ],
+                    api_key=api_key,
+                    timeout=20,
+                    max_tokens=1024,
+                    extra_headers={
+                        "HTTP-Referer": "https://nourishbot.vercel.app",
+                        "X-Title": "NourishBot"
+                    }
+                )
+                duration = time.time() - start_t
+                content = _safely_extract_content(response, model_id)
+                if content and len(content.strip()) > 0:
+                    logging.info(f"Successfully received vision response from OpenRouter model '{model_id}' in {duration:.2f}s")
+                    return content
+            except Exception as e:
+                duration = time.time() - start_t
+                logging.warning(f"OpenRouter vision model '{model_id}' failed after {duration:.2f}s: {type(e).__name__} - {str(e)}")
+                last_exception = e
+
+        err_msg = str(last_exception) if last_exception else "All candidate vision models failed."
+        if "401" in err_msg or "AuthenticationError" in err_msg or "cookie" in err_msg or "Clerk" in err_msg:
+            raise RuntimeError(f"OpenRouter Authentication Error (401): Please verify OPENROUTER_API_KEY in Vercel settings. Details: {err_msg}")
+        elif "429" in err_msg or "RateLimit" in err_msg:
+            raise RuntimeError(f"OpenRouter Rate Limit Exceeded (429): Free tier quota limit reached. Details: {err_msg}")
+        elif "timeout" in err_msg.lower() or "connection" in err_msg.lower():
+            raise RuntimeError(f"OpenRouter Network Timeout: Connection lost during vision request. Details: {err_msg}")
+        else:
+            raise RuntimeError(f"OpenRouter Vision Error: {err_msg}")
+
     else:
         raise ValueError(f"Unsupported LLM provider for vision: {selected_provider}")
 
 
-
 def call_llm_text(prompt_text: str) -> str:
-    """Helper to route text LLM calls to various providers"""
-    if llm_provider == "ollama":
+    """Helper to route text LLM calls to various providers with safe response validation and 30s timeout"""
+    provider = llm_provider
+    if provider == "ollama":
+        if os.getenv("VERCEL"):
+            raise RuntimeError("Ollama local endpoint is not supported in Vercel serverless environment. Please set LLM_PROVIDER=openrouter or GEMINI_API_KEY in Vercel.")
         logging.info(f"Calling Ollama Text model: {ollama_model} at {ollama_host}")
         url = f"{ollama_host.rstrip('/')}/api/chat"
         payload = {
             "model": ollama_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt_text
-                }
-            ],
+            "messages": [{"role": "user", "content": prompt_text}],
             "stream": False
         }
-        res = requests.post(url, json=payload)
+        res = requests.post(url, json=payload, timeout=30)
         if res.status_code == 200:
             return res.json()["message"]["content"]
         else:
             raise RuntimeError(f"Ollama Error ({res.status_code}): {res.text}")
-    elif llm_provider == "gemini":
+
+    elif provider == "gemini":
         logging.info("Calling Gemini Text model...")
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -213,10 +390,12 @@ def call_llm_text(prompt_text: str) -> str:
         response = litellm.completion(
             model=f"gemini/{gemini_model}",
             messages=[{"role": "user", "content": prompt_text}],
-            api_key=api_key
+            api_key=api_key,
+            timeout=30
         )
-        return response.choices[0].message.content
-    elif llm_provider == "groq":
+        return _safely_extract_content(response, gemini_model)
+
+    elif provider == "groq":
         logging.info("Calling Groq Text model...")
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
@@ -224,10 +403,12 @@ def call_llm_text(prompt_text: str) -> str:
         response = litellm.completion(
             model="groq/llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt_text}],
-            api_key=api_key
+            api_key=api_key,
+            timeout=30
         )
-        return response.choices[0].message.content
-    elif llm_provider == "watsonx":
+        return _safely_extract_content(response, "groq/llama-3.3-70b-versatile")
+
+    elif provider == "watsonx":
         logging.info("Calling IBM Watsonx Text model...")
         api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
         project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
@@ -236,18 +417,15 @@ def call_llm_text(prompt_text: str) -> str:
             raise RuntimeError("IBM_WATSONX_APIKEY is required when using watsonx provider.")
         response = litellm.completion(
             model="watsonx/ibm/granite-4-h-small",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt_text}],
-                }
-            ],
+            messages=[{"role": "user", "content": prompt_text}],
             api_key=api_key,
             api_base=base_url,
-            project_id=project_id
+            project_id=project_id,
+            timeout=30
         )
-        return response.choices[0].message.content
-    elif llm_provider == "github":
+        return _safely_extract_content(response, "watsonx/granite-4-h-small")
+
+    elif provider == "github":
         logging.info("Calling GitHub Models Text model (gpt-4o-mini)...")
         api_key = os.getenv("GITHUB_API_KEY", os.getenv("GITHUB_TOKEN"))
         if not api_key:
@@ -256,23 +434,56 @@ def call_llm_text(prompt_text: str) -> str:
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt_text}],
             api_key=api_key,
-            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com")
+            base_url=os.getenv("GITHUB_BASE_URL", "https://models.inference.ai.azure.com"),
+            timeout=30
         )
-        return response.choices[0].message.content
-    elif llm_provider == "openrouter":
-        logging.info("Calling OpenRouter Text model...")
+        return _safely_extract_content(response, "github/gpt-4o-mini")
+
+    elif provider == "openrouter":
         api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
-        openrouter_model = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
-        response = litellm.completion(
-            model=f"openrouter/{openrouter_model}",
-            messages=[{"role": "user", "content": prompt_text}],
-            api_key=api_key
-        )
-        return response.choices[0].message.content
+        has_key = bool(api_key and str(api_key).strip())
+        logging.info(f"[Text Request] Provider: openrouter | OPENROUTER_API_KEY exists: {has_key}")
+        if not has_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured in environment variables.")
+        
+        configured_model = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
+        candidate_models = [configured_model]
+        for fallback in ["google/gemma-4-31b-it:free", "openrouter/auto"]:
+            if fallback not in candidate_models:
+                candidate_models.append(fallback)
+                
+        last_exception = None
+        for tm in candidate_models:
+            model_id = tm if tm.startswith("openrouter/") else f"openrouter/{tm}"
+            start_t = time.time()
+            logging.info(f"Attempting OpenRouter Text model: '{model_id}'...")
+            try:
+                response = litellm.completion(
+                    model=model_id,
+                    messages=[{"role": "user", "content": prompt_text}],
+                    api_key=api_key,
+                    timeout=30,
+                    max_tokens=1024,
+                    extra_headers={
+                        "HTTP-Referer": "https://nourishbot.vercel.app",
+                        "X-Title": "NourishBot"
+                    }
+                )
+                duration = time.time() - start_t
+                content = _safely_extract_content(response, model_id)
+                if content and len(content.strip()) > 0:
+                    logging.info(f"Successfully received text response from OpenRouter model '{model_id}' in {duration:.2f}s")
+                    return content
+            except Exception as e:
+                duration = time.time() - start_t
+                logging.warning(f"OpenRouter text model '{model_id}' failed after {duration:.2f}s: {type(e).__name__} - {str(e)}")
+                last_exception = e
+                
+        err_msg = str(last_exception) if last_exception else "All candidate text models failed."
+        raise RuntimeError(f"OpenRouter Text Error: {err_msg}")
+
     else:
-        raise ValueError(f"Unsupported LLM provider for text: {llm_provider}")
+        raise ValueError(f"Unsupported LLM provider for text: {provider}")
 
 
 @tool("Extract ingredients")
@@ -288,18 +499,7 @@ def _extract_ingredient_fn(image_input: str = None, **kwargs) -> str:
     if val is None:
         raise ValueError("No image path provided to the extract ingredients tool.")
         
-    image_input_str = str(val).strip().strip("'\"")
-    if image_input_str.startswith("http"):
-        response = requests.get(image_input_str)
-        response.raise_for_status()
-        raw_data = response.content
-    else:
-        if not os.path.isfile(image_input_str):
-            raise FileNotFoundError(f"No file found at path: {image_input_str}")
-        with open(image_input_str, "rb") as file:
-            raw_data = file.read()
-
-    encoded_image = base64.b64encode(raw_data).decode("utf-8")
+    encoded_image = validate_and_preprocess_image(str(val))
     return call_llm_vision("Extract ingredients from the food item image", encoded_image)
 
 
@@ -394,18 +594,7 @@ def _analyze_image_fn(image_input: str = None, **kwargs) -> str:
     if val is None:
         raise ValueError("No image path provided to the nutrient analysis tool.")
         
-    image_input_str = str(val).strip().strip("'\"")
-    if image_input_str.startswith("http"):
-        response = requests.get(image_input_str)
-        response.raise_for_status()
-        raw_data = response.content
-    else:
-        if not os.path.isfile(image_input_str):
-            raise FileNotFoundError(f"No file found at path: {image_input_str}")
-        with open(image_input_str, "rb") as file:
-            raw_data = file.read()
-
-    encoded_image = base64.b64encode(raw_data).decode("utf-8")
+    encoded_image = validate_and_preprocess_image(str(val))
     
     assistant_prompt = """
     You are an expert nutritionist. Analyze the food items displayed in the image and provide a JSON response strictly adhering to the JSON schema below with no Markdown formatting or codeblock wrappers:

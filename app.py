@@ -15,9 +15,14 @@ from ui import (
 load_dotenv()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
+# In-memory cache for Stripe payment history API calls to avoid repeated requests during UI polling
+_stripe_sessions_cache = {"data": None, "time": 0}
+
 def analyze_food(image, dietary_restrictions, workflow_type, clerk_user_id):
     """
     Main handler for Gradio interface.
+    Performs user validation and credit deduction via local JSON database once before executing AI workflow.
+    No Stripe network calls are made during this AI workflow.
     """
     import credits_manager
     
@@ -29,12 +34,12 @@ def analyze_food(image, dietary_restrictions, workflow_type, clerk_user_id):
     if not clerk_user_id or clerk_user_id.strip() == "":
         return "<div class='empty-state'>⚠️ Session authentication error. Please log in again.</div>"
 
-    # Check credit balance
+    # Check credit balance ONCE using local database
     balance = credits_manager.get_user_credits(clerk_user_id)
     if balance <= 0:
         return "<div class='empty-state' style='color: #ef4444;'>❌ Out of credits. Please purchase a plan in the billing panel above.</div>"
 
-    # Deduct credit
+    # Deduct 1 credit ONCE using local database
     success = credits_manager.deduct_credit(clerk_user_id)
     if not success:
         return "<div class='empty-state' style='color: #ef4444;'>❌ Out of credits. Please purchase a plan in the billing panel above.</div>"
@@ -158,7 +163,7 @@ if __name__ == "__main__":
         head=get_head(clerk_publishable_key, is_clerk_configured)
     )
     
-    # Now that the server is built and running, register our dynamic FastAPI endpoints on it!
+    # Register dynamic FastAPI endpoints on top-level app
     app = demo.app
     
     @app.get("/api/credits")
@@ -174,7 +179,13 @@ if __name__ == "__main__":
         if not user_id:
             return JSONResponse(status_code=400, content={"error": "Missing user_id"})
         try:
-            sessions = stripe.checkout.Session.list(limit=50)
+            # 60-second in-memory cache for Stripe payment history API calls
+            now = time.time()
+            if _stripe_sessions_cache["data"] is None or (now - _stripe_sessions_cache["time"]) > 60:
+                _stripe_sessions_cache["data"] = stripe.checkout.Session.list(limit=50)
+                _stripe_sessions_cache["time"] = now
+            sessions = _stripe_sessions_cache["data"]
+            
             user_sessions = []
             for s in sessions.data:
                 metadata = s.metadata.to_dict() if s.metadata else {}

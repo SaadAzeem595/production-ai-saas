@@ -1,258 +1,127 @@
 import os
-import yaml
-import base64
-from crewai import Agent, Crew, Process, Task, LLM
-import crewai.llms.cache as _crewai_cache
-# Disable cache_breakpoint flag injection for incompatible providers like Groq
-_crewai_cache.mark_cache_breakpoint = lambda msg: msg
-
-# Disable native function calling for Groq and OpenRouter models due to tool_use_failed and schema validation errors
-_original_supports_function_calling = LLM.supports_function_calling
-def _custom_supports_function_calling(self) -> bool:
-    model_str = getattr(self, "model", "").lower()
-    provider_str = getattr(self, "provider", "").lower()
-    if "groq" in model_str or provider_str == "groq":
-        return False
-    if "openrouter" in model_str or provider_str == "openrouter":
-        return False
-    return _original_supports_function_calling(self)
-LLM.supports_function_calling = _custom_supports_function_calling
-
-from crewai.project import CrewBase, agent, crew, task
+import json
+import re
+import logging
 from src.tools import (
     ExtractIngredientsTool, 
     FilterIngredientsTool, 
     DietaryFilterTool,
-    NutrientAnalysisTool
+    NutrientAnalysisTool,
+    call_llm_text
 )
 from src.models import RecipeSuggestionOutput, NutrientAnalysisOutput 
 from dotenv import load_dotenv
 load_dotenv()
 
-# watsonx_url = os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com")
-# watsonx_apikey = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY", ""))
-# project_id = os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
+logging.basicConfig(level=logging.INFO)
 
-# cred_args = {"url": watsonx_url}
-# if watsonx_apikey:
-#     cred_args["api_key"] = watsonx_apikey
-
-# credentials = Credentials(**cred_args)
-# client = APIClient(credentials) if watsonx_apikey else None
-
-
-def get_agent_llm() -> LLM:
-    print("=" * 50)
-    print("LLM_PROVIDER =", os.getenv("LLM_PROVIDER"))
-    print("GITHUB_BASE_URL =", os.getenv("GITHUB_BASE_URL"))
-    print("GITHUB_API_KEY exists =", bool(os.getenv("GITHUB_API_KEY")))
-    print("=" * 50)
-    provider = os.getenv("LLM_PROVIDER", "ollama").lower()
-    
-    if provider == "groq":
-        api_key = os.getenv("GROQ_API_KEY")
-        if not api_key:
-            raise RuntimeError("GROQ_API_KEY is required when using groq provider.")
-        return LLM(model="groq/llama-3.3-70b-versatile", api_key=api_key)
-    elif provider == "gemini":
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY is required when using gemini provider.")
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        return LLM(model=f"gemini/{gemini_model}", api_key=api_key)
-    elif provider == "watsonx":
-        api_key = os.getenv("IBM_WATSONX_APIKEY", os.getenv("WATSONX_APIKEY"))
-        if not api_key:
-            raise RuntimeError("IBM_WATSONX_APIKEY or WATSONX_APIKEY is required when using watsonx provider.")
-        return LLM(
-            model="watsonx/ibm/granite-3-8b-instruct",
-            api_key=api_key,
-            base_url=os.getenv("IBM_WATSONX_URL", "https://us-south.ml.cloud.ibm.com"),
-            project_id=os.getenv("IBM_WATSONX_PROJECT_ID", "skills-network")
-        )
-    elif provider == "github":
-        api_key = os.getenv("GITHUB_API_KEY")
-        return LLM(
-            model="github/gpt-4o-mini",
-            api_key=api_key,
-            base_url="https://models.inference.ai.azure.com"
-    )
-    elif provider == "openrouter":
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY is required when using openrouter provider.")
-        openrouter_model = os.getenv("OPENROUTER_MODEL", "google/gemma-4-26b-a4b-it:free")
-        return LLM(
-            model=f"openrouter/{openrouter_model}",
-            api_key=api_key
-        )
-    elif provider == "ollama":
-        # Default local Ollama (100% free, no API key required)
-        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        model = os.getenv("OLLAMA_MODEL", "llama3.2")
-        return LLM(
-            model=f"ollama/{model}",
-            base_url=host
-        )
-    else:
-        raise ValueError(f"Unsupported LLM provider: {provider}")
+# Try importing crewai; if unavailable or in serverless environment, use native deterministic runner
+try:
+    from crewai import Agent, Crew, Process, Task, LLM
+    from crewai.project import CrewBase, agent, crew, task
+    import crewai.llms.cache as _crewai_cache
+    _crewai_cache.mark_cache_breakpoint = lambda msg: msg
+    HAS_CREWAI = True
+except Exception:
+    HAS_CREWAI = False
 
 
-# Get the absolute path to the config directory (located at root)
-CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+class CrewOutput:
+    def __init__(self, data_dict, raw_text=""):
+        self.json_dict = data_dict if isinstance(data_dict, dict) else {}
+        self.pydantic = self.json_dict
+        self.raw = raw_text or (json.dumps(data_dict) if isinstance(data_dict, dict) else str(data_dict))
 
-@CrewBase
+
 class BaseNourishBotCrew:
-    agents_config = os.path.join(CONFIG_DIR, 'agents.yaml')
-    tasks_config = os.path.join(CONFIG_DIR, 'tasks.yaml')
-    
     def __init__(self, image_data, dietary_restrictions: str = None):
         self.image_data = image_data
         self.dietary_restrictions = dietary_restrictions
 
-        if isinstance(self.agents_config, str) and os.path.exists(self.agents_config):
-            with open(self.agents_config, 'r') as f:
-                self.agents_config = yaml.safe_load(f)
-        
-        if isinstance(self.tasks_config, str) and os.path.exists(self.tasks_config):
-            with open(self.tasks_config, 'r') as f:
-                self.tasks_config = yaml.safe_load(f)
+    def crew(self):
+        return self
 
-    @agent
-    def ingredient_detection_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['ingredient_detection_agent'],
-            tools=[
-                ExtractIngredientsTool.extract_ingredient, 
-                FilterIngredientsTool.filter_ingredients
-            ],
-            allow_delegation=False,
-            max_iter=5,
-            verbose=True,
-            llm=get_agent_llm()
-        )
-
-    @agent
-    def dietary_filtering_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['dietary_filtering_agent'],
-            tools=[DietaryFilterTool.filter_based_on_restrictions],
-            allow_delegation=True,
-            max_iter=6,
-            verbose=True,
-            llm=get_agent_llm()
-        )
-
-    @agent
-    def nutrient_analysis_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['nutrient_analysis_agent'],
-            tools=[NutrientAnalysisTool.analyze_image],
-            allow_delegation=False,
-            max_iter=4,
-            verbose=True,
-            llm=get_agent_llm()
-        )
-
-    @agent
-    def recipe_suggestion_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config['recipe_suggestion_agent'],
-            allow_delegation=False,
-            verbose=True,
-            llm=get_agent_llm()
-        )
-
-    @task
-    def ingredient_detection_task(self) -> Task:
-        task_config = self.tasks_config['ingredient_detection_task']
-
-        return Task(
-            description=task_config['description'],
-            agent=self.ingredient_detection_agent(),
-            expected_output=task_config['expected_output']
-        )
-
-    @task
-    def dietary_filtering_task(self) -> Task:
-        task_config = self.tasks_config['dietary_filtering_task']
-
-        return Task(
-            description=task_config['description'],
-            agent=self.dietary_filtering_agent(),
-            context=[self.ingredient_detection_task()],
-            expected_output=task_config['expected_output']
-        )
-
-    @task
-    def nutrient_analysis_task(self) -> Task:
-        task_config = self.tasks_config['nutrient_analysis_task']
-
-        return Task(
-            description=task_config['description'],
-            agent=self.nutrient_analysis_agent(),
-            expected_output=task_config['expected_output'],
-            output_json=NutrientAnalysisOutput
-        )
-
-    @task
-    def recipe_suggestion_task(self) -> Task:
-        task_config = self.tasks_config['recipe_suggestion_task']
-
-        return Task(
-            description=task_config['description'],
-            agent=self.recipe_suggestion_agent(),
-            context=[self.dietary_filtering_task()],
-            expected_output=task_config['expected_output'],
-            output_json=RecipeSuggestionOutput
-        )
+    def _parse_json(self, text):
+        if not text:
+            return {}
+        cleaned = str(text).strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"```$", "", cleaned)
+            cleaned = cleaned.strip()
+        try:
+            return json.loads(cleaned)
+        except Exception:
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except Exception:
+                    pass
+            return {"raw": text}
 
 
-@CrewBase
 class NourishBotRecipeCrew(BaseNourishBotCrew):
-    agents_config = os.path.join(CONFIG_DIR, 'agents.yaml')
-    tasks_config = os.path.join(CONFIG_DIR, 'tasks.yaml')
+    def kickoff(self, inputs=None):
+        inputs = inputs or {}
+        image_path = inputs.get('uploaded_image', self.image_data)
+        dietary = inputs.get('dietary_restrictions', self.dietary_restrictions)
 
-    @crew
-    def crew(self) -> Crew:
-        tasks = [
-            self.ingredient_detection_task(),
-            self.dietary_filtering_task(),
-            self.recipe_suggestion_task()
-        ]
+        logging.info(f"[NourishBotRecipeCrew] Kickoff starting. Image: {image_path}, Dietary: {dietary}")
 
-        agents = [
-            self.ingredient_detection_agent(),
-            self.dietary_filtering_agent(),
-            self.recipe_suggestion_agent()
-        ]
+        # Step 1: Deterministic image ingredient extraction
+        raw_ingredients = ExtractIngredientsTool.extract_ingredient(image_input=image_path)
 
-        return Crew(
-            agents=agents,
-            tasks=tasks,
-            process=Process.sequential,
-            verbose=True
-        )
+        # Step 2: Filter raw ingredients
+        filtered_ingredients = FilterIngredientsTool.filter_ingredients(raw_ingredients=raw_ingredients)
+
+        # Step 3: Filter based on dietary restrictions
+        if dietary and str(dietary).strip():
+            compliant_ingredients = DietaryFilterTool.filter_based_on_restrictions(
+                ingredients=filtered_ingredients, 
+                dietary_restrictions=dietary
+            )
+        else:
+            compliant_ingredients = filtered_ingredients
+
+        # Step 4: Recipe suggestion prompt using text LLM
+        prompt = f"""
+You are an expert chef and nutritionist. Given these available compliant ingredients:
+{compliant_ingredients}
+
+And dietary restrictions: {dietary or 'None'}
+
+Suggest 2 to 3 creative, healthy, and delicious recipes. Return a valid JSON response strictly matching the schema below with no Markdown formatting or codeblock wrappers:
+{{
+  "recipes": [
+    {{
+      "title": "Recipe Title",
+      "ingredients": ["ingredient 1", "ingredient 2"],
+      "instructions": "Step 1... Step 2...",
+      "calorie_estimate": 450
+    }}
+  ]
+}}
+"""
+        response_text = call_llm_text(prompt)
+        parsed_json = self._parse_json(response_text)
+        
+        # Ensure 'recipes' key exists
+        if "recipes" not in parsed_json or not isinstance(parsed_json["recipes"], list):
+            parsed_json = {"recipes": [], "raw": response_text}
+
+        return CrewOutput(data_dict=parsed_json, raw_text=response_text)
 
 
-@CrewBase
 class NourishBotAnalysisCrew(BaseNourishBotCrew):
-    agents_config = os.path.join(CONFIG_DIR, 'agents.yaml')
-    tasks_config = os.path.join(CONFIG_DIR, 'tasks.yaml')
+    def kickoff(self, inputs=None):
+        inputs = inputs or {}
+        image_path = inputs.get('uploaded_image', self.image_data)
 
-    @crew
-    def crew(self) -> Crew:
-        tasks = [
-            self.nutrient_analysis_task(),
-        ]
+        logging.info(f"[NourishBotAnalysisCrew] Kickoff starting. Image: {image_path}")
 
-        agents = [
-            self.nutrient_analysis_agent(),
-        ]
+        # Deterministic Nutrient Analysis call
+        response_text = NutrientAnalysisTool.analyze_image(image_input=image_path)
+        parsed_json = self._parse_json(response_text)
 
-        return Crew(
-            agents=agents,
-            tasks=tasks,
-            process=Process.sequential,
-            verbose=True
-        )
+        return CrewOutput(data_dict=parsed_json, raw_text=response_text)
