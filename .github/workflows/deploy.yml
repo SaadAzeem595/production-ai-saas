@@ -1,0 +1,41 @@
+name: Build and Deploy Nutrition App
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: acrnutritionapp123.azurecr.io
+          username: acrnutritionapp123
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: acrnutritionapp123.azurecr.io/nutrition-app:${{ github.sha }}
+
+      - name: Log in to Azure CLI
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          acrName: acrnutritionapp123
+          containerAppName: app-nutrition-api
+          resourceGroup: rg-nutrition-prod
+          imageToDeploy: acrnutritionapp123.azurecr.io/nutrition-app:${{ github.sha }}
+          targetPort: 8000
