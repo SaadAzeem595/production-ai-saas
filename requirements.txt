@@ -11,3 +11,4 @@ langchain>=0.3.0
 stripe>=8.0.0
 litellm>=1.91.4
 google-genai>=1.0.0
+uvicorn>=0.20.0
