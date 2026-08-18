@@ -8,7 +8,7 @@ This project demonstrates the use of Agentic AI and multi-agent collaboration to
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue)
 ![CrewAI](https://img.shields.io/badge/CrewAI-Multi--Agent-green)
-![Railway](https://img.shields.io/badge/Deployment-Railway-purple)
+![Azure](https://img.shields.io/badge/Deployment-Microsoft%20Azure-blue)
 ![Clerk](https://img.shields.io/badge/Auth-Clerk-orange)
 ![Stripe](https://img.shields.io/badge/Payments-Stripe-blue)
 ![OpenRouter](https://img.shields.io/badge/OpenRouter-API-blueviolet)
@@ -60,7 +60,7 @@ Unlike the original IBM watsonx academic project, this version has been complete
 - Clerk Authentication
 - Protected Dashboard
 - Stripe Subscription Integration
-- Railway Cloud Deployment
+- Microsoft Azure Cloud Deployment
 - Custom Domain
 - Environment Variable Management
 - Production Configuration
@@ -165,7 +165,8 @@ Powered by Stripe
 
 ## Deployment
 
-- Railway
+- Microsoft Azure
+- Azure App Service
 
 ## Domain
 
@@ -211,7 +212,7 @@ The production version includes:
 
 ✅ Stripe Payment System
 
-✅ Railway Deployment
+✅ Microsoft Azure Deployment
 
 ✅ Custom Domain
 
