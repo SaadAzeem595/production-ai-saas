@@ -1,2 +1,2 @@
 #!/bin/bash
-gunicorn --bind=0.0.0.0 --timeout 600 -k uvicorn.workers.UvicornWorker app:app
+python -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 --timeout-keep-alive 120
