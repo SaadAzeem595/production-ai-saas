@@ -12,3 +12,5 @@ stripe>=8.0.0
 litellm>=1.91.4
 google-genai>=1.0.0
 uvicorn>=0.20.0
+gunicorn>=21.2.0
+
