@@ -3,10 +3,10 @@ import base64
 import os
 import time
 import stripe
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from src.crew import NourishBotRecipeCrew, NourishBotAnalysisCrew
 from ui import (
     get_css, get_head, get_header_html, get_home_html, get_payment_html, get_success_html,
     format_recipe_output, format_analysis_output, extract_crew_output_dict
@@ -54,13 +54,23 @@ def analyze_food(image, dietary_restrictions, workflow_type, clerk_user_id):
     }
 
     try:
+        # Retrieve pre-loaded crew classes from app.state or lazy-import fallback
+        try:
+            RecipeCrew = getattr(app.state, "NourishBotRecipeCrew", None)
+            AnalysisCrew = getattr(app.state, "NourishBotAnalysisCrew", None)
+        except Exception:
+            RecipeCrew = AnalysisCrew = None
+
+        if RecipeCrew is None or AnalysisCrew is None:
+            from src.crew import NourishBotRecipeCrew as RecipeCrew, NourishBotAnalysisCrew as AnalysisCrew
+
         if workflow_type == "recipe":
-            crew_instance = NourishBotRecipeCrew(
+            crew_instance = RecipeCrew(
                 image_data=temp_path,
                 dietary_restrictions=dietary_restrictions
             )
         elif workflow_type == "analysis":
-            crew_instance = NourishBotAnalysisCrew(
+            crew_instance = AnalysisCrew(
                 image_data=temp_path
             )
         else:
@@ -149,8 +159,25 @@ with gr.Blocks(title="AI Saad • Smart Nutrition Coach") as demo:
             gr.HTML(get_payment_html())
 
 
-# Initialize top-level FastAPI app
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager for pre-loading heavy AI models, embeddings,
+    and agent crew dependencies during startup without blocking global module import & port binding.
+    """
+    print("[lifespan] Pre-loading AI models, agent tools, and crews...")
+    try:
+        from src.crew import NourishBotRecipeCrew, NourishBotAnalysisCrew
+        app.state.NourishBotRecipeCrew = NourishBotRecipeCrew
+        app.state.NourishBotAnalysisCrew = NourishBotAnalysisCrew
+        print("[lifespan] AI models and crews successfully pre-loaded.")
+    except Exception as e:
+        print(f"[lifespan] Warning: Error pre-loading AI models/crews during startup: {e}")
+    yield
+    print("[lifespan] Cleaning up application resources...")
+
+# Initialize top-level FastAPI app with lifespan context manager
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/api/credits")
 async def api_get_credits(user_id: str):
