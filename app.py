@@ -149,124 +149,119 @@ with gr.Blocks(title="AI Saad • Smart Nutrition Coach") as demo:
             gr.HTML(get_payment_html())
 
 
+# Initialize top-level FastAPI app
+app = FastAPI()
+
+@app.get("/api/credits")
+async def api_get_credits(user_id: str):
+    import credits_manager
+    if not user_id:
+        return JSONResponse(status_code=400, content={"error": "Missing user_id"})
+    credits = credits_manager.get_user_credits(user_id)
+    return {"credits": credits}
+
+@app.get("/api/payment-history")
+async def api_payment_history(user_id: str):
+    if not user_id:
+        return JSONResponse(status_code=400, content={"error": "Missing user_id"})
+    try:
+        # 60-second in-memory cache for Stripe payment history API calls
+        now = time.time()
+        if _stripe_sessions_cache["data"] is None or (now - _stripe_sessions_cache["time"]) > 60:
+            _stripe_sessions_cache["data"] = stripe.checkout.Session.list(limit=50)
+            _stripe_sessions_cache["time"] = now
+        sessions = _stripe_sessions_cache["data"]
+        
+        user_sessions = []
+        for s in sessions.data:
+            metadata = s.metadata.to_dict() if s.metadata else {}
+            if metadata.get("user_id") == user_id and s.payment_status == "paid":
+                user_sessions.append({
+                    "id": s.id,
+                    "amount": s.amount_total / 100.0,
+                    "currency": s.currency.upper(),
+                    "status": s.status,
+                    "created": s.created,
+                    "credits": metadata.get("credits", "0")
+                })
+        return {"history": user_sessions}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/create-checkout-session")
+async def create_checkout_session(plan: str, user_id: str, request: Request):
+    if not user_id or plan not in ["pro", "team"]:
+        return JSONResponse(status_code=400, content={"error": "Invalid plan or user_id"})
+    try:
+        base_url = str(request.base_url).rstrip('/')
+        success_url = f"{base_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base_url}/"
+        
+        amount = 500 if plan == "pro" else 2000
+        credits_count = 5 if plan == "pro" else 25
+        name = "AI Saad Pro Plan - 5 Credits" if plan == "pro" else "AI Saad Team Plan - 25 Credits"
+        desc = "5 food analysis credits" if plan == "pro" else "25 food analysis credits"
+        
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': name,
+                        'description': desc,
+                    },
+                    'unit_amount': amount,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                'user_id': user_id,
+                'plan': plan,
+                'credits': credits_count
+            }
+        )
+        return RedirectResponse(url=session.url)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.get("/payment-success")
+async def payment_success(session_id: str):
+    import credits_manager
+    if not session_id:
+        return HTMLResponse(content="<h3>Error: Missing Session ID</h3>", status_code=400)
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status == "paid":
+            metadata = session.metadata.to_dict() if session.metadata else {}
+            user_id = metadata.get("user_id")
+            plan = metadata.get("plan")
+            credits_to_add = int(metadata.get("credits", 0))
+            customer_email = session.customer_details.email if session.customer_details else None
+            
+            if user_id and credits_to_add > 0:
+                credits_manager.add_credits_for_session(user_id, session_id, credits_to_add, customer_email)
+                return HTMLResponse(content=get_success_html(credits_to_add))
+        return HTMLResponse(content="<h3>Payment verification failed or session not paid.</h3>", status_code=400)
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>Error verifying payment: {str(e)}</h3>", status_code=500)
+
+# Mount Gradio interface onto top-level FastAPI app
+app = gr.mount_gradio_app(
+    app,
+    demo,
+    path="/",
+    theme=gr.themes.Soft(primary_hue="emerald", neutral_hue="slate"),
+    css=get_css(),
+    head=get_head(clerk_publishable_key, is_clerk_configured)
+)
+
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.getenv("PORT", 5000))
     host = os.getenv("HOST", "0.0.0.0")
-    
-    # Launch Gradio with prevent_thread_lock=True to build and run the FastAPI app
-    demo.launch(
-        server_name=host,
-        server_port=port,
-        prevent_thread_lock=True,
-        theme=gr.themes.Soft(primary_hue="emerald", neutral_hue="slate"),
-        css=get_css(),
-        head=get_head(clerk_publishable_key, is_clerk_configured)
-    )
-    
-    # Register dynamic FastAPI endpoints on top-level app
-    app = demo.app
-    
-    @app.get("/api/credits")
-    async def api_get_credits(user_id: str):
-        import credits_manager
-        if not user_id:
-            return JSONResponse(status_code=400, content={"error": "Missing user_id"})
-        credits = credits_manager.get_user_credits(user_id)
-        return {"credits": credits}
+    uvicorn.run(app, host=host, port=port)
 
-    @app.get("/api/payment-history")
-    async def api_payment_history(user_id: str):
-        if not user_id:
-            return JSONResponse(status_code=400, content={"error": "Missing user_id"})
-        try:
-            # 60-second in-memory cache for Stripe payment history API calls
-            now = time.time()
-            if _stripe_sessions_cache["data"] is None or (now - _stripe_sessions_cache["time"]) > 60:
-                _stripe_sessions_cache["data"] = stripe.checkout.Session.list(limit=50)
-                _stripe_sessions_cache["time"] = now
-            sessions = _stripe_sessions_cache["data"]
-            
-            user_sessions = []
-            for s in sessions.data:
-                metadata = s.metadata.to_dict() if s.metadata else {}
-                if metadata.get("user_id") == user_id and s.payment_status == "paid":
-                    user_sessions.append({
-                        "id": s.id,
-                        "amount": s.amount_total / 100.0,
-                        "currency": s.currency.upper(),
-                        "status": s.status,
-                        "created": s.created,
-                        "credits": metadata.get("credits", "0")
-                    })
-            return {"history": user_sessions}
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": str(e)})
-
-    @app.get("/create-checkout-session")
-    async def create_checkout_session(plan: str, user_id: str, request: Request):
-        if not user_id or plan not in ["pro", "team"]:
-            return JSONResponse(status_code=400, content={"error": "Invalid plan or user_id"})
-        try:
-            base_url = str(request.base_url).rstrip('/')
-            success_url = f"{base_url}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
-            cancel_url = f"{base_url}/"
-            
-            amount = 500 if plan == "pro" else 2000
-            credits_count = 5 if plan == "pro" else 25
-            name = "AI Saad Pro Plan - 5 Credits" if plan == "pro" else "AI Saad Team Plan - 25 Credits"
-            desc = "5 food analysis credits" if plan == "pro" else "25 food analysis credits"
-            
-            session = stripe.checkout.Session.create(
-                payment_method_types=['card'],
-                line_items=[{
-                    'price_data': {
-                        'currency': 'usd',
-                        'product_data': {
-                            'name': name,
-                            'description': desc,
-                        },
-                        'unit_amount': amount,
-                    },
-                    'quantity': 1,
-                }],
-                mode='payment',
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
-                    'user_id': user_id,
-                    'plan': plan,
-                    'credits': credits_count
-                }
-            )
-            return RedirectResponse(url=session.url)
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": str(e)})
-
-    @app.get("/payment-success")
-    async def payment_success(session_id: str):
-        import credits_manager
-        if not session_id:
-            return HTMLResponse(content="<h3>Error: Missing Session ID</h3>", status_code=400)
-        try:
-            session = stripe.checkout.Session.retrieve(session_id)
-            if session.payment_status == "paid":
-                metadata = session.metadata.to_dict() if session.metadata else {}
-                user_id = metadata.get("user_id")
-                plan = metadata.get("plan")
-                credits_to_add = int(metadata.get("credits", 0))
-                customer_email = session.customer_details.email if session.customer_details else None
-                
-                if user_id and credits_to_add > 0:
-                    credits_manager.add_credits_for_session(user_id, session_id, credits_to_add, customer_email)
-                    return HTMLResponse(content=get_success_html(credits_to_add))
-            return HTMLResponse(content="<h3>Payment verification failed or session not paid.</h3>", status_code=400)
-        except Exception as e:
-            return HTMLResponse(content=f"<h3>Error verifying payment: {str(e)}</h3>", status_code=500)
-
-    # Keep the main thread blocked and running
-    try:
-        import time
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        demo.close()
