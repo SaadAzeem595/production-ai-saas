@@ -1,15 +1,36 @@
 <div class="header-banner">
-    <div class="header-auth-row" style="display: flex; align-items: center; gap: 15px;">
-        <div id="credits-badge-container" class="credits-badge" style="display: none;">
-            <span class="credits-label">Credits:</span>
-            <span id="user-credits-val" class="credits-count">...</span>
+    <div class="header-auth-row">
+        <div class="header-top-row">
+            <div id="credits-badge-container" class="credits-badge" style="display: none;">
+                <span class="credits-icon">✦</span>
+                <span class="credits-label">Credits:</span>
+                <span id="user-credits-val" class="credits-count">...</span>
+            </div>
+            <div id="clerk-user-button-mount" class="user-avatar-mount"></div>
         </div>
+        
         <div id="buy-credits-btn-container" class="buy-btn-group" style="display: none;">
-            <a id="buy-pro-link" href="#" target="_blank" class="buy-badge pro">Get Pro (5 credits)</a>
-            <a id="buy-team-link" href="#" target="_blank" class="buy-badge team">Get Team (25 credits)</a>
+            <a id="buy-pro-link" href="#" target="_blank" class="buy-badge pro">
+                <span class="btn-icon">✨</span>
+                <span class="btn-label">Get Pro</span>
+                <span class="btn-badge-info">(5 credits)</span>
+            </a>
+            <a id="buy-team-link" href="#" target="_blank" class="buy-badge team">
+                <span class="btn-icon">🚀</span>
+                <span class="btn-label">Get Team</span>
+                <span class="btn-badge-info">(25 credits)</span>
+            </a>
         </div>
-        <div id="clerk-user-button-mount"></div>
     </div>
-    <h1 class="header-title" style="cursor: pointer;" onclick="switchGradioTab('Home')">🥗 AI Saad • Smart Nutrition Coach</h1>
-    <p class="header-subtitle">Powered by Multi-Agent AI (CrewAI). Upload a meal or fridge photo to receive instant recipe suggestions, macro breakdowns, and personalized dietary guidance.</p>
+
+    <div class="header-branding-container">
+        <h1 class="header-title" style="cursor: pointer;" onclick="switchGradioTab('Home')">
+            <span class="brand-logo">🥗</span>
+            <span class="brand-title">AI Saad</span>
+            <span class="brand-dot">•</span>
+            <span class="brand-subtitle">Smart Nutrition Coach</span>
+        </h1>
+        <p class="header-subtitle">Powered by Multi-Agent AI (CrewAI). Upload a meal or fridge photo to receive instant recipe suggestions, macro breakdowns, and personalized dietary guidance.</p>
+    </div>
 </div>
+
