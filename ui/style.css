@@ -1071,7 +1071,7 @@ body, .gradio-container {
 }
 
 .tab-nav,
-.tab-container,
+.tab-container:not(.visually-hidden),
 .tab-wrapper {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     gap: 8px !important;
@@ -1089,16 +1089,17 @@ body, .gradio-container {
     width: 100% !important;
 }
 
-.tab-container.visually-hidden,
-.overflow-dropdown {
-    display: flex !important;
-    position: static !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    clip: auto !important;
-    clip-path: none !important;
-    width: 100% !important;
-    height: auto !important;
+.visually-hidden,
+.tab-container.visually-hidden {
+    display: none !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    clip: rect(0, 0, 0, 0) !important;
 }
 
 .overflow-menu {
