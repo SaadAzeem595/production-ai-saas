@@ -373,18 +373,32 @@ body.clerk-unauthenticated #landing-page-container {
 
 <script>
 function switchGradioTab(tabName) {
-    const buttons = document.querySelectorAll('button');
-    for (let button of buttons) {
-        const isTabButton = button.classList.contains('tab-nav') || 
-                            button.closest('.tab-nav') || 
-                            (button.parentElement && button.parentElement.classList.contains('tab-nav')) ||
-                            button.getAttribute('role') === 'tab';
-        if (isTabButton && button.innerText.trim().includes(tabName)) {
+    const buttons = Array.from(document.querySelectorAll('button'));
+    
+    // Find all candidate buttons containing tabName, excluding non-tab action buttons
+    const candidates = buttons.filter(b => {
+        if (b.classList.contains('card-action-btn') || 
+            b.classList.contains('buy-badge') || 
+            b.classList.contains('btn-primary') || 
+            b.classList.contains('nav-btn') ||
+            b.classList.contains('modal-close')) {
+            return false;
+        }
+        return b.textContent && b.textContent.includes(tabName);
+    });
+
+    // Click all matching tab candidate buttons (including mobile overflow dropdown tabs)
+    for (const button of candidates) {
+        try {
             button.click();
-            break;
+            button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } catch (err) {
+            console.error("Tab click error:", err);
         }
     }
 }
+
+
 
 async function fetchPaymentHistory(userId) {
     try {

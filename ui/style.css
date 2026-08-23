@@ -110,6 +110,11 @@ body, .gradio-container {
     gap: 6px !important;
     white-space: nowrap;
     backdrop-filter: blur(8px);
+    touch-action: manipulation;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto !important;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .buy-badge.pro {
@@ -161,6 +166,10 @@ body, .gradio-container {
     animation: shine 4s linear infinite;
     cursor: pointer;
     line-height: 1.25 !important;
+    touch-action: manipulation;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto !important;
 }
 
 @keyframes shine {
@@ -211,17 +220,37 @@ body, .gradio-container {
 
 /* --- MOBILE & TABLET HEADER (Width <= 768px) --- */
 @media (max-width: 768px) {
+    .gradio-container {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
+    .gradio-container > .main,
+    .gradio-container .contain,
+    .gradio-container .tabpanel,
+    .gradio-container .tabitem {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+
     .header-banner {
         position: static;
         display: flex;
         flex-direction: column;
         align-items: center;
         padding: 1.25rem 1rem;
-        gap: 1.25rem;
+        gap: 1rem;
         border-radius: 20px;
         margin-bottom: 1.5rem;
-        width: 100%;
-        box-sizing: border-box;
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
     }
 
     .header-auth-row {
@@ -229,32 +258,59 @@ body, .gradio-container {
         display: flex;
         flex-direction: column;
         width: 100%;
-        gap: 1.25rem;
+        gap: 1rem;
+        box-sizing: border-box;
     }
 
-    /* Layer 1: Top Controls Row (Credits left, Avatar right) */
+    /* Section 1: Top Controls Row (Credits left, Avatar right) */
     .header-top-row {
         display: flex !important;
         justify-content: space-between;
         align-items: center;
         width: 100%;
-        padding: 0 4px;
+        padding: 0 2px;
         box-sizing: border-box;
+        margin: 0;
     }
 
     #credits-badge-container {
-        order: unset;
+        order: 1;
         margin: 0;
     }
 
     .user-avatar-mount, #clerk-user-button-mount {
-        order: unset;
+        order: 2;
         margin: 0;
         display: flex;
         align-items: center;
     }
 
-    /* Layer 2: Centered Branding */
+    /* Section 2: Pro & Team Action Buttons Grid */
+    #buy-credits-btn-container.buy-btn-group {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        width: 100%;
+        margin: 0;
+        box-sizing: border-box;
+    }
+
+    .buy-badge {
+        width: 100%;
+        min-width: 0;
+        padding: 10px 8px !important;
+        font-size: clamp(0.78rem, 3.2vw, 0.9rem) !important;
+        text-align: center;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 4px !important;
+        border-radius: 12px !important;
+        white-space: nowrap;
+        box-sizing: border-box;
+    }
+
+    /* Section 3: Centered Branding */
     .header-branding-container {
         width: 100%;
         text-align: center;
@@ -264,7 +320,7 @@ body, .gradio-container {
     .header-title {
         font-size: clamp(1.4rem, 5.5vw, 2.2rem) !important;
         font-weight: 700 !important;
-        line-height: 1.3 !important;
+        line-height: 1.25 !important;
         margin-bottom: 0.5rem !important;
     }
 
@@ -289,44 +345,18 @@ body, .gradio-container {
         padding: 0 4px;
         margin: 0.5rem auto 0;
     }
-
-    /* Layer 3: Pro & Team Action Buttons */
-    #buy-credits-btn-container.buy-btn-group {
-        order: unset;
-        display: flex !important;
-        flex-direction: row;
-        justify-content: center;
-        align-items: center;
-        width: 100%;
-        gap: 10px;
-        margin: 0;
-        box-sizing: border-box;
-    }
-
-    .buy-badge {
-        flex: 1;
-        min-width: 0;
-        padding: 8px 10px !important;
-        font-size: 0.85rem !important;
-        text-align: center;
-        display: inline-flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 4px !important;
-        border-radius: 12px !important;
-    }
 }
 
 /* --- SMALL PHONE BREAKPOINT (Width <= 360px) --- */
 @media (max-width: 360px) {
     .gradio-container {
-        padding-left: 8px !important;
-        padding-right: 8px !important;
+        padding-left: 10px !important;
+        padding-right: 10px !important;
     }
 
     .header-banner {
         padding: 1rem 0.75rem;
-        gap: 1rem;
+        gap: 0.85rem;
     }
 
     .credits-badge {
@@ -347,15 +377,20 @@ body, .gradio-container {
     }
 
     .buy-badge {
-        padding: 7px 6px !important;
+        padding: 8px 6px !important;
         font-size: 0.78rem !important;
         gap: 3px !important;
     }
 
     .btn-badge-info {
-        font-size: 0.7rem;
+        display: none !important;
+    }
+
+    .label-full {
+        display: none !important;
     }
 }
+
 
 /* Button & Cards Premium Styling */
 .btn-primary {
@@ -507,6 +542,11 @@ body, .gradio-container {
     text-align: center;
     width: fit-content;
     text-decoration: none;
+    touch-action: manipulation;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto !important;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .card-action-btn:hover {
@@ -738,6 +778,11 @@ body, .gradio-container {
     transition: all 0.2s ease;
     text-decoration: none;
     display: block;
+    touch-action: manipulation;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto !important;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .plan-btn:hover {
@@ -1020,12 +1065,14 @@ body, .gradio-container {
     font-size: 1.15rem;
 }
 
-/* Custom Gradio Tabs Override */
+/* Custom Gradio Tabs Override (Supports Gradio 3, 4, 5 & 6) */
 .tabs {
     border: none !important;
 }
 
-.tab-nav {
+.tab-nav,
+.tab-container,
+.tab-wrapper {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     gap: 8px !important;
     margin-bottom: 1.5rem !important;
@@ -1033,9 +1080,34 @@ body, .gradio-container {
     padding: 0 !important;
     display: flex !important;
     flex-wrap: wrap !important;
+    position: static !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    clip: auto !important;
+    clip-path: none !important;
+    height: auto !important;
+    width: 100% !important;
 }
 
-.tab-nav button {
+.tab-container.visually-hidden,
+.overflow-dropdown {
+    display: flex !important;
+    position: static !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    clip: auto !important;
+    clip-path: none !important;
+    width: 100% !important;
+    height: auto !important;
+}
+
+.overflow-menu {
+    display: none !important;
+}
+
+.tab-nav button,
+.tab-container button,
+.tab-wrapper button {
     border: none !important;
     background: none !important;
     color: #94a3b8 !important;
@@ -1045,20 +1117,29 @@ body, .gradio-container {
     border-bottom: 2px solid transparent !important;
     border-radius: 0 !important;
     transition: all 0.2s ease !important;
+    cursor: pointer !important;
+    touch-action: manipulation !important;
 }
 
 @media (max-width: 480px) {
-    .tab-nav button {
+    .tab-nav button,
+    .tab-container button,
+    .tab-wrapper button {
         padding: 0.5rem 0.75rem !important;
-        font-size: 0.9rem !important;
+        font-size: 0.88rem !important;
     }
 }
 
-.tab-nav button:hover {
+.tab-nav button:hover,
+.tab-container button:hover,
+.tab-wrapper button:hover {
     color: #cbd5e1 !important;
 }
 
-.tab-nav button.selected {
+.tab-nav button.selected,
+.tab-container button.selected,
+.tab-wrapper button.selected {
     color: #34d399 !important;
     border-bottom: 2px solid #34d399 !important;
 }
+
