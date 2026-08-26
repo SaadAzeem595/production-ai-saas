@@ -322,9 +322,16 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
         if not has_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured in environment variables. Please set OPENROUTER_API_KEY in Vercel settings.")
         
-        configured_model = os.getenv("OPENROUTER_VISION_MODEL", "dots-studio/dots-3-note-preview:free")
+        configured_model = os.getenv("OPENROUTER_VISION_MODEL", "qwen/qwen-2-vl-72b-instruct")
         candidate_models = [configured_model]
-        for fallback in ["nvidia/nemotron-nano-12b-v2-vl:free", "openrouter/auto"]:
+        open_access_fallbacks = [
+            "qwen/qwen-2-vl-72b-instruct",
+            "meta-llama/llama-3.2-11b-vision-instruct",
+            "anthropic/claude-3-haiku",
+            "nvidia/nemotron-nano-12b-v2-vl:free",
+            "openrouter/auto"
+        ]
+        for fallback in open_access_fallbacks:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
                 
@@ -349,8 +356,8 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                     timeout=20,
                     max_tokens=1024,
                     extra_headers={
-                        "HTTP-Referer": "https://nourishbot.vercel.app",
-                        "X-Title": "NourishBot"
+                        "HTTP-Referer": "https://saadflask.me",
+                        "X-Title": "AI Nutrition Coach"
                     }
                 )
                 duration = time.time() - start_t
@@ -360,14 +367,20 @@ def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:
                     return content
             except Exception as e:
                 duration = time.time() - start_t
-                logging.warning(f"OpenRouter vision model '{model_id}' failed after {duration:.2f}s: {type(e).__name__} - {str(e)}")
+                err_str = str(e)
+                if "403" in err_str or "not available in your region" in err_str.lower() or "openrouterexception" in err_str.lower():
+                    logging.warning(f"OpenRouter 403 Region Restriction on model '{model_id}' after {duration:.2f}s: {e}. Falling back to alternate open-access vision model...")
+                else:
+                    logging.warning(f"OpenRouter vision model '{model_id}' failed after {duration:.2f}s: {type(e).__name__} - {err_str}")
                 last_exception = e
 
         err_msg = str(last_exception) if last_exception else "All candidate vision models failed."
-        if "401" in err_msg or "AuthenticationError" in err_msg or "cookie" in err_msg or "Clerk" in err_msg:
-            raise RuntimeError(f"OpenRouter Authentication Error (401): Please verify OPENROUTER_API_KEY in Vercel settings. Details: {err_msg}")
+        if "403" in err_msg or "not available in your region" in err_msg.lower() or "openrouterexception" in err_msg.lower():
+            raise RuntimeError(f"OpenRouter 403 Region Error: Vision model is not available in your region (Azure East Asia). Details: {err_msg}")
+        elif "401" in err_msg or "AuthenticationError" in err_msg or "cookie" in err_msg or "Clerk" in err_msg:
+            raise RuntimeError(f"OpenRouter Authentication Error (401): Please verify OPENROUTER_API_KEY in environment variables. Details: {err_msg}")
         elif "429" in err_msg or "RateLimit" in err_msg:
-            raise RuntimeError(f"OpenRouter Rate Limit Exceeded (429): Free tier quota limit reached. Details: {err_msg}")
+            raise RuntimeError(f"OpenRouter Rate Limit Exceeded (429): Quota limit reached. Details: {err_msg}")
         elif "timeout" in err_msg.lower() or "connection" in err_msg.lower():
             raise RuntimeError(f"OpenRouter Network Timeout: Connection lost during vision request. Details: {err_msg}")
         else:
@@ -480,8 +493,8 @@ def call_llm_text(prompt_text: str) -> str:
                     timeout=30,
                     max_tokens=1024,
                     extra_headers={
-                        "HTTP-Referer": "https://nourishbot.vercel.app",
-                        "X-Title": "NourishBot"
+                        "HTTP-Referer": "https://saadflask.me",
+                        "X-Title": "AI Nutrition Coach"
                     }
                 )
                 duration = time.time() - start_t
