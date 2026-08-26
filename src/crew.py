@@ -93,6 +93,83 @@ class BaseNourishBotCrew:
 
         return {"raw": text}
 
+    def _extract_recipes_from_text(self, text: str, compliant_ingredients=None) -> list:
+        """
+        Fallback parser to extract multiple individual recipes from raw LLM text or markdown responses.
+        Filters out internal chain-of-thought meta-commentary ("We need answer JSON...", etc.).
+        """
+        if not text:
+            return []
+        
+        cleaned_text = str(text).strip()
+        lines = cleaned_text.splitlines()
+        filtered_lines = []
+        skipping_thoughts = True
+        for l in lines:
+            l_str = l.strip()
+            if skipping_thoughts:
+                if re.match(r"^(?:###?\s*|\d+[\.\)]\s*|Recipe\s*\d+:?\s*|[A-Z][a-z]+.*Recipe)", l_str, re.IGNORECASE) and not any(tp in l_str.lower() for tp in ["we need", "let's think", "available compliant", "given these"]):
+                    skipping_thoughts = False
+                    filtered_lines.append(l)
+            else:
+                filtered_lines.append(l)
+
+        cleaned_text = "\n".join(filtered_lines if filtered_lines else lines).strip()
+        raw_blocks = re.split(r"(?:\r?\n){1,2}(?=(?:###?\s*|\d+[\.\)]\s*|Recipe\s*\d+:?\s*))", cleaned_text, flags=re.IGNORECASE)
+        
+        recipes = []
+        for block in raw_blocks:
+            block = block.strip()
+            if not block or len(block) < 15:
+                continue
+            
+            block_lines = [l.strip() for l in block.splitlines() if l.strip()]
+            if not block_lines:
+                continue
+            
+            first_line = block_lines[0]
+            if any(tp in first_line.lower() for tp in ["we need", "let's think", "given these"]):
+                continue
+
+            title = re.sub(r"^(?:###?\s*|\d+[\.\)]\s*|Recipe\s*\d+:?\s*)", "", first_line, flags=re.IGNORECASE).strip(' "*#:')
+            if not title or len(title) < 3:
+                title = f"Recipe #{len(recipes)+1}"
+
+            cal_match = re.search(r"(\d{2,4})\s*(?:kcal|calories|cal)", block, re.IGNORECASE)
+            calorie_estimate = int(cal_match.group(1)) if cal_match else "N/A"
+
+            ingredients = []
+            ing_match = re.search(r"(?:🛒\s*|Ingredients:\s*)(.*?)(?:📜|Instructions:|Steps:|\n\n|\Z)", block, re.DOTALL | re.IGNORECASE)
+            if ing_match:
+                raw_ings = ing_match.group(1).strip()
+                for line in raw_ings.splitlines():
+                    line = re.sub(r"^[•\-\*\d+\.]\s*", "", line).strip()
+                    if line and not any(k in line.lower() for k in ["instructions", "calorie"]):
+                        ingredients.extend([i.strip(' "*#') for i in line.split(",") if i.strip()])
+
+            if not ingredients and compliant_ingredients:
+                if isinstance(compliant_ingredients, list):
+                    ingredients = compliant_ingredients
+                else:
+                    ingredients = [i.strip() for i in str(compliant_ingredients).split(",") if i.strip()]
+
+            inst_match = re.search(r"(?:📜\s*|Instructions:|Steps:\s*)(.*)", block, re.DOTALL | re.IGNORECASE)
+            if inst_match:
+                instructions = inst_match.group(1).strip()
+            else:
+                instructions = "\n".join([l for l in block_lines[1:] if not any(k in l.lower() for k in ["ingredients:", "calorie", "recipe"])])
+
+            instructions = re.sub(r"(?:We need answer JSON|Need recipes using|Let's think|Need valid JSON).*", "", instructions, flags=re.DOTALL | re.IGNORECASE).strip()
+
+            recipes.append({
+                "title": title,
+                "ingredients": ingredients or ["Mixed compliant ingredients"],
+                "instructions": instructions or "Prepare and serve fresh.",
+                "calorie_estimate": calorie_estimate
+            })
+
+        return recipes
+
 
 class NourishBotRecipeCrew(BaseNourishBotCrew):
     def kickoff(self, inputs=None):
@@ -118,24 +195,30 @@ class NourishBotRecipeCrew(BaseNourishBotCrew):
             compliant_ingredients = filtered_ingredients
 
         # Step 4: Recipe suggestion prompt using text LLM
-        prompt = f"""
-You are an expert chef and nutritionist. Given these available compliant ingredients:
-{compliant_ingredients}
+        prompt = f"""You are an expert chef and nutritionist.
+Given these available ingredients: {compliant_ingredients}
+Dietary restrictions: {dietary or 'None'}
 
-And dietary restrictions: {dietary or 'None'}
-
-Suggest 2 to 3 creative, healthy, and delicious recipes. Return a valid JSON response strictly matching the schema below with no Markdown formatting or codeblock wrappers:
+CRITICAL INSTRUCTIONS:
+- You MUST generate 2 to 3 distinct, delicious recipes using the available ingredients.
+- Output ONLY a raw, valid JSON object with NO reasoning thoughts, NO chain-of-thought commentary, and NO markdown codeblock wrappers.
+- Strictly match the JSON schema below:
 {{
   "recipes": [
     {{
-      "title": "Recipe Title",
+      "title": "Creative Recipe Name 1",
       "ingredients": ["ingredient 1", "ingredient 2"],
       "instructions": "Step 1... Step 2...",
-      "calorie_estimate": 450
+      "calorie_estimate": 250
+    }},
+    {{
+      "title": "Creative Recipe Name 2",
+      "ingredients": ["ingredient 1", "ingredient 3"],
+      "instructions": "Step 1... Step 2...",
+      "calorie_estimate": 180
     }}
   ]
-}}
-"""
+}}"""
         response_text = call_llm_text(prompt)
         parsed_json = self._parse_json(response_text)
         
@@ -150,13 +233,8 @@ Suggest 2 to 3 creative, healthy, and delicious recipes. Return a valid JSON res
                 recipes = [parsed_json]
 
         if not recipes and response_text and len(str(response_text).strip()) > 0:
-            # Construct fallback recipe from text response
-            recipes = [{
-                "title": "Chef's Recommended Recipe",
-                "ingredients": [ing.strip() for ing in str(compliant_ingredients).split(",") if ing.strip()],
-                "instructions": str(response_text).strip(),
-                "calorie_estimate": "N/A"
-            }]
+            # Multi-recipe text fallback parser
+            recipes = self._extract_recipes_from_text(response_text, compliant_ingredients)
 
         parsed_json = {"recipes": recipes, "raw": response_text}
         return CrewOutput(data_dict=parsed_json, raw_text=response_text)
