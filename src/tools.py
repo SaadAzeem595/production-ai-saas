@@ -124,33 +124,20 @@ def validate_and_preprocess_image(image_input_str: str, max_dim: int = 1024, qua
 
 def _safely_extract_content(response: Any, model_name: str) -> str:
     """
-    Safely validates and extracts content from a LiteLLM completion response object.
-    Guarantees that 'NoneType' object is not subscriptable errors are impossible.
+    Safely validates and extracts text content from a LiteLLM completion response object.
+    Supports standard content, reasoning/thinking blocks (DeepSeek-R1), refusal text, and tool call fallback.
+    Guarantees that 'NoneType' object is not subscriptable and silent None content errors are handled safely.
     """
     if response is None:
         raise RuntimeError(f"LLM API model '{model_name}' returned None (null response object).")
 
-    # Handle dictionary response format
+    # Extract choices array
+    choices = None
     if isinstance(response, dict):
         choices = response.get("choices")
-        if not choices or not isinstance(choices, list) or len(choices) == 0:
-            raise RuntimeError(f"LLM API model '{model_name}' returned response dictionary with empty 'choices' list.")
-        first_choice = choices[0]
-        if not isinstance(first_choice, dict):
-            raise RuntimeError(f"LLM API model '{model_name}' returned invalid choice element.")
-        msg = first_choice.get("message")
-        if not msg or not isinstance(msg, dict):
-            raise RuntimeError(f"LLM API model '{model_name}' choice missing 'message' field.")
-        content = msg.get("content")
-        if content is None:
-            raise RuntimeError(f"LLM API model '{model_name}' response message content is None.")
-        return str(content)
+    elif hasattr(response, "choices"):
+        choices = getattr(response, "choices", None)
 
-    # Handle LiteLLM ModelResponse object format
-    if not hasattr(response, "choices"):
-        raise RuntimeError(f"LLM API model '{model_name}' response object has no 'choices' attribute.")
-
-    choices = getattr(response, "choices", None)
     if not choices or not isinstance(choices, (list, tuple)) or len(choices) == 0:
         raise RuntimeError(f"LLM API model '{model_name}' returned empty 'choices' list.")
 
@@ -158,21 +145,49 @@ def _safely_extract_content(response: Any, model_name: str) -> str:
     if first_choice is None:
         raise RuntimeError(f"LLM API model '{model_name}' first choice element is None.")
 
-    if not hasattr(first_choice, "message"):
-        raise RuntimeError(f"LLM API model '{model_name}' choice object has no 'message' attribute.")
+    # Extract message dictionary or object
+    msg = None
+    if isinstance(first_choice, dict):
+        msg = first_choice.get("message")
+    elif hasattr(first_choice, "message"):
+        msg = getattr(first_choice, "message", None)
 
-    msg = getattr(first_choice, "message", None)
     if msg is None:
-        raise RuntimeError(f"LLM API model '{model_name}' message object is None.")
+        raise RuntimeError(f"LLM API model '{model_name}' choice missing 'message' field.")
 
-    if not hasattr(msg, "content"):
-        raise RuntimeError(f"LLM API model '{model_name}' message object has no 'content' attribute.")
+    def get_val(target, key):
+        if isinstance(target, dict):
+            return target.get(key)
+        return getattr(target, key, None)
 
-    content = getattr(msg, "content", None)
-    if content is None:
-        raise RuntimeError(f"LLM API model '{model_name}' message content is None.")
+    # 1. Primary text content
+    content = get_val(msg, "content")
+    if content is not None and str(content).strip():
+        return str(content).strip()
 
-    return str(content)
+    # 2. Reasoning / Thinking content (e.g., DeepSeek R1, Qwen-QwQ, Gemini thinking models)
+    reasoning = get_val(msg, "reasoning_content") or get_val(msg, "reasoning") or get_val(msg, "thinking")
+    if reasoning is not None and str(reasoning).strip():
+        logging.info(f"[{model_name}] Standard content was None; safely extracted from 'reasoning_content'.")
+        return str(reasoning).strip()
+
+    # 3. Refusal content
+    refusal = get_val(msg, "refusal")
+    if refusal is not None and str(refusal).strip():
+        logging.warning(f"[{model_name}] Model responded with refusal text.")
+        return str(refusal).strip()
+
+    # 4. Tool calls fallback
+    tool_calls = get_val(msg, "tool_calls")
+    if tool_calls and isinstance(tool_calls, (list, tuple)) and len(tool_calls) > 0:
+        first_tool = tool_calls[0]
+        func = get_val(first_tool, "function") if (isinstance(first_tool, dict) or hasattr(first_tool, "function")) else first_tool
+        args = get_val(func, "arguments") or get_val(func, "name")
+        if args and str(args).strip():
+            logging.info(f"[{model_name}] Standard content was None; safely extracted tool call payload.")
+            return str(args).strip()
+
+    raise RuntimeError(f"LLM API model '{model_name}' returned empty response (message content is None and no reasoning/tool_calls found).")
 
 
 def call_llm_vision(prompt_text: str, encoded_image_base64: str) -> str:

@@ -45,20 +45,53 @@ class BaseNourishBotCrew:
         if not text:
             return {}
         cleaned = str(text).strip()
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?", "", cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r"```$", "", cleaned)
-            cleaned = cleaned.strip()
+        
+        # Pass 1: Extract content inside markdown ```json ... ``` code fence
+        fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+        if fence_match:
+            try:
+                res = json.loads(fence_match.group(1).strip())
+                if isinstance(res, dict):
+                    return res
+                if isinstance(res, list):
+                    return {"recipes": res}
+            except Exception:
+                pass
+
+        # Pass 2: Direct JSON parsing
         try:
-            return json.loads(cleaned)
+            res = json.loads(cleaned)
+            if isinstance(res, dict):
+                return res
+            if isinstance(res, list):
+                return {"recipes": res}
         except Exception:
-            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            pass
+
+        # Pass 3: Search for explicit JSON dictionary containing "recipes"
+        dict_match = re.search(r"(\{[\s\S]*\"recipes\"[\s\S]*\})", cleaned)
+        if dict_match:
+            try:
+                res = json.loads(dict_match.group(1).strip())
+                if isinstance(res, dict):
+                    return res
+            except Exception:
+                pass
+
+        # Pass 4: Generic JSON object or array match
+        for pattern in [r"(\{[\s\S]*\})", r"(\[[\s\S]*\])"]:
+            match = re.search(pattern, cleaned)
             if match:
                 try:
-                    return json.loads(match.group(0))
+                    res = json.loads(match.group(1).strip())
+                    if isinstance(res, dict):
+                        return res
+                    if isinstance(res, list):
+                        return {"recipes": res}
                 except Exception:
                     pass
-            return {"raw": text}
+
+        return {"raw": text}
 
 
 class NourishBotRecipeCrew(BaseNourishBotCrew):
@@ -106,10 +139,26 @@ Suggest 2 to 3 creative, healthy, and delicious recipes. Return a valid JSON res
         response_text = call_llm_text(prompt)
         parsed_json = self._parse_json(response_text)
         
-        # Ensure 'recipes' key exists
-        if "recipes" not in parsed_json or not isinstance(parsed_json["recipes"], list):
-            parsed_json = {"recipes": [], "raw": response_text}
+        # Normalize recipe output dictionary
+        recipes = []
+        if isinstance(parsed_json, dict):
+            if "recipes" in parsed_json and isinstance(parsed_json["recipes"], list):
+                recipes = parsed_json["recipes"]
+            elif "recipe_suggestions" in parsed_json and isinstance(parsed_json["recipe_suggestions"], list):
+                recipes = parsed_json["recipe_suggestions"]
+            elif "title" in parsed_json:
+                recipes = [parsed_json]
 
+        if not recipes and response_text and len(str(response_text).strip()) > 0:
+            # Construct fallback recipe from text response
+            recipes = [{
+                "title": "Chef's Recommended Recipe",
+                "ingredients": [ing.strip() for ing in str(compliant_ingredients).split(",") if ing.strip()],
+                "instructions": str(response_text).strip(),
+                "calorie_estimate": "N/A"
+            }]
+
+        parsed_json = {"recipes": recipes, "raw": response_text}
         return CrewOutput(data_dict=parsed_json, raw_text=response_text)
 
 

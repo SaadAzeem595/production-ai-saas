@@ -61,20 +61,29 @@ def format_recipe_output(final_output):
     output += "<h2 class='section-title'>🍽️ Chef Saad's Recommended Recipes</h2>\n\n"
     
     recipes = []
-    if isinstance(final_output, dict):
-        if "recipes" in final_output:
-            recipes = final_output["recipes"]
-        else:
-            recipe_task_output = final_output.get("recipe_suggestion_task")
-            if recipe_task_output and hasattr(recipe_task_output, "json_dict") and recipe_task_output.json_dict:
-                recipes = recipe_task_output.json_dict.get("recipes", [])
+    raw_text_fallback = ""
     
+    if isinstance(final_output, dict):
+        if "recipes" in final_output and isinstance(final_output["recipes"], list):
+            recipes = final_output["recipes"]
+        elif "recipe_suggestions" in final_output and isinstance(final_output["recipe_suggestions"], list):
+            recipes = final_output["recipe_suggestions"]
+        elif "title" in final_output:
+            recipes = [final_output]
+        
+        if not recipes and "raw" in final_output and isinstance(final_output["raw"], str):
+            raw_text_fallback = final_output["raw"].strip()
+    elif isinstance(final_output, str) and len(final_output.strip()) > 0:
+        raw_text_fallback = final_output.strip()
+
     if recipes:
         for idx, recipe in enumerate(recipes, 1):
             title = recipe.get('title', f'Recipe #{idx}')
             calories = recipe.get('calorie_estimate', 'N/A')
-            instructions = recipe.get('instructions', '').replace('\n', '<br>')
+            instructions = str(recipe.get('instructions', '')).replace('\n', '<br>')
             ingredients = recipe.get('ingredients', [])
+            if isinstance(ingredients, str):
+                ingredients = [i.strip() for i in ingredients.split(",") if i.strip()]
             
             output += f"<div class='recipe-card'>\n"
             output += f"  <div class='recipe-header'>\n"
@@ -97,6 +106,12 @@ def format_recipe_output(final_output):
             output += f"    </div>\n"
             output += f"  </div>\n"
             output += f"</div>\n<br>\n"
+    elif raw_text_fallback:
+        formatted_raw = raw_text_fallback.replace("\n", "<br>")
+        output += f"<div class='recipe-card'>\n"
+        output += f"  <div class='recipe-header'><h3 class='recipe-name'>🍽️ Chef's Recommendations</h3></div>\n"
+        output += f"  <div class='recipe-body'><p class='instructions-text'>{formatted_raw}</p></div>\n"
+        output += f"</div><br>\n"
     else:
         output += "<div class='empty-state'>⚠️ No recipes could be generated with the given inputs. Please try another image.</div>"
     
