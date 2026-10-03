@@ -77,6 +77,21 @@ def format_recipe_output(final_output):
         raw_text_fallback = final_output.strip()
 
     if recipes:
+        cleaned_recipes = []
+        for r in recipes:
+            t = str(r.get('title', '')).lower()
+            ings = r.get('ingredients', [])
+            inst = str(r.get('instructions', '')).lower()
+            if any(b in t for b in ['empty fridge', 'clear ice', 'consomme', 'consommé', 'cleaning']):
+                continue
+            if any(b in inst for b in ['empty refrigerator', 'atmosphere of possibility']):
+                continue
+            if not ings or (len(ings) == 1 and any(b in str(ings[0]).lower() for b in ['silence', 'empty', 'water'])):
+                continue
+            cleaned_recipes.append(r)
+        recipes = cleaned_recipes
+
+    if recipes:
         for idx, recipe in enumerate(recipes, 1):
             title = recipe.get('title', f'Recipe #{idx}')
             calories = recipe.get('calorie_estimate', 'N/A')
@@ -108,14 +123,14 @@ def format_recipe_output(final_output):
             output += f"</div>\n<br>\n"
     elif isinstance(final_output, dict) and final_output.get("message"):
         output += f"<div class='empty-state'>⚠️ {final_output['message']}</div>"
-    elif raw_text_fallback:
+    elif raw_text_fallback and not any(bad in raw_text_fallback.lower() for bad in ["not a food", "empty refrigerator", "no food", "feel free to share", "no ingredients"]):
         formatted_raw = raw_text_fallback.replace("\n", "<br>")
         output += f"<div class='recipe-card'>\n"
         output += f"  <div class='recipe-header'><h3 class='recipe-name'>🍽️ Chef's Recommendations</h3></div>\n"
         output += f"  <div class='recipe-body'><p class='instructions-text'>{formatted_raw}</p></div>\n"
         output += f"</div><br>\n"
     else:
-        output += "<div class='empty-state'>⚠️ No recipes could be generated with the given inputs. Please upload an image with visible food items or groceries.</div>"
+        output += "<div class='empty-state'>⚠️ No food ingredients were detected in the uploaded image. The refrigerator appears to be empty. Please upload an image with visible food items or groceries.</div>"
     
     output += "</div>"
     return output

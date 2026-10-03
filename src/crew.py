@@ -7,7 +7,8 @@ from src.tools import (
     FilterIngredientsTool, 
     DietaryFilterTool,
     NutrientAnalysisTool,
-    call_llm_text
+    call_llm_text,
+    is_empty_or_refusal_response
 )
 from src.models import RecipeSuggestionOutput, NutrientAnalysisOutput 
 from dotenv import load_dotenv
@@ -183,10 +184,18 @@ class NourishBotRecipeCrew(BaseNourishBotCrew):
         raw_ingredients = ExtractIngredientsTool.extract_ingredient(image_input=image_path)
 
         # Step 2: Filter raw ingredients
+        if is_empty_or_refusal_response(raw_ingredients):
+            logging.info("[NourishBotRecipeCrew] Vision tool flagged empty refrigerator or refusal.")
+            empty_payload = {
+                "recipes": [],
+                "message": "No food ingredients or edible grocery items were detected in the uploaded image. The refrigerator appears to be empty."
+            }
+            return CrewOutput(data_dict=empty_payload, raw_text=json.dumps(empty_payload))
+
         filtered_ingredients = FilterIngredientsTool.filter_ingredients(raw_ingredients=raw_ingredients)
 
         # Handle empty refrigerator or non-food image
-        if not filtered_ingredients or not filtered_ingredients.strip() or filtered_ingredients.strip().lower() in ["no_food_detected", "none", "empty"]:
+        if not filtered_ingredients or not filtered_ingredients.strip() or is_empty_or_refusal_response(filtered_ingredients):
             logging.info("[NourishBotRecipeCrew] No food ingredients detected in image. Refrigerator or space appears empty.")
             empty_payload = {
                 "recipes": [],
@@ -203,7 +212,7 @@ class NourishBotRecipeCrew(BaseNourishBotCrew):
         else:
             compliant_ingredients = filtered_ingredients
 
-        if not compliant_ingredients or not compliant_ingredients.strip():
+        if not compliant_ingredients or not compliant_ingredients.strip() or is_empty_or_refusal_response(compliant_ingredients):
             logging.info("[NourishBotRecipeCrew] No ingredients remained after dietary filtering.")
             empty_payload = {
                 "recipes": [],
@@ -217,7 +226,8 @@ Given these available ingredients: {compliant_ingredients}
 Dietary restrictions: {dietary or 'None'}
 
 CRITICAL INSTRUCTIONS:
-- You MUST generate 2 to 3 distinct, delicious recipes using the available ingredients.
+- You MUST generate 2 to 3 distinct, delicious recipes using ONLY the available ingredients.
+- If the available ingredients list is empty or contains no edible food, output ONLY: {{"recipes": []}}
 - Output ONLY a raw, valid JSON object with NO reasoning thoughts, NO chain-of-thought commentary, and NO markdown codeblock wrappers.
 - Strictly match the JSON schema below:
 {{
@@ -252,6 +262,28 @@ CRITICAL INSTRUCTIONS:
         if not recipes and response_text and len(str(response_text).strip()) > 0:
             # Multi-recipe text fallback parser
             recipes = self._extract_recipes_from_text(response_text, compliant_ingredients)
+
+        # Filter out joke / hallucinated empty fridge recipes
+        valid_recipes = []
+        for r in recipes:
+            title = str(r.get("title", "")).lower()
+            r_ings = r.get("ingredients", [])
+            r_inst = str(r.get("instructions", "")).lower()
+            if any(bad in title for bad in ["empty fridge", "clear ice", "cleaning", "consomme", "consommé", "silence", "nothing"]):
+                continue
+            if any(bad in r_inst for bad in ["empty refrigerator", "atmosphere of possibility", "clean glass shelves", "cleaning supplies"]):
+                continue
+            if not r_ings or (len(r_ings) == 1 and any(bad in str(r_ings[0]).lower() for bad in ["silence", "empty", "water"])):
+                continue
+            valid_recipes.append(r)
+        recipes = valid_recipes
+
+        if not recipes:
+            empty_payload = {
+                "recipes": [],
+                "message": "No food ingredients or edible grocery items were detected in the uploaded image. The refrigerator appears to be empty."
+            }
+            return CrewOutput(data_dict=empty_payload, raw_text=json.dumps(empty_payload))
 
         parsed_json = {"recipes": recipes, "raw": response_text}
         return CrewOutput(data_dict=parsed_json, raw_text=response_text)

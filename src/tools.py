@@ -515,6 +515,29 @@ def call_llm_text(prompt_text: str) -> str:
         raise ValueError(f"Unsupported LLM provider for text: {provider}")
 
 
+def is_empty_or_refusal_response(text: str) -> bool:
+    """Detects if vision or LLM text is a refusal, empty indicator, or conversational note explaining no food is present."""
+    if not text:
+        return True
+    lower = str(text).strip().lower()
+    
+    empty_phrases = [
+        "no_food_detected", "no food detected", "no_ingredients_detected", "no ingredients detected",
+        "not a food", "not food", "no food", "no edible", "no ingredients",
+        "empty refrigerator", "empty fridge", "refrigerator is empty", "fridge is empty",
+        "empty freezer", "freezer is empty", "empty shelves", "shelves are empty",
+        "picture of an empty", "photo of an empty", "image of an empty", "shows an empty",
+        "there are no ingredients", "there are no food", "no items to extract",
+        "nothing to extract", "not contain any food", "does not contain any food",
+        "cannot extract", "feel free to share", "image of actual food", "actual food or a meal",
+        "clear ice cubes", "empty fridge clear consomme", "empty fridge clear consommé"
+    ]
+    for phrase in empty_phrases:
+        if phrase in lower:
+            return True
+    return False
+
+
 @tool("Extract ingredients")
 def _extract_ingredient_fn(image_input: str = None, **kwargs) -> str:
     """Extract ingredients from a food item image. Pass the image path as 'image_input'."""
@@ -542,7 +565,11 @@ def _extract_ingredient_fn(image_input: str = None, **kwargs) -> str:
         "3. If edible food ingredients are present, return ONLY a concise comma-separated list of the food items "
         "(e.g. 'eggs, whole milk, cheddar cheese, apples'). Do not include explanation, bullet points, numbers, or chain-of-thought."
     )
-    return call_llm_vision(prompt, encoded_image)
+    raw_res = call_llm_vision(prompt, encoded_image)
+    if is_empty_or_refusal_response(raw_res):
+        logging.info("[ExtractIngredientsTool] Vision model indicated empty/non-food image or refusal.")
+        return "NO_FOOD_DETECTED"
+    return raw_res
 
 
 class ExtractIngredientsTool:
@@ -569,11 +596,8 @@ def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
         cleaned = str(val)
         
     cleaned_lower = cleaned.strip().lower()
-    # Direct match for empty or negative indicator tokens
-    if not cleaned_lower or cleaned_lower in [
-        "no_food_detected", "no food detected", "no_ingredients_detected", "no ingredients detected",
-        "none", "empty", "nothing", "nil", "n/a", "empty refrigerator", "empty fridge"
-    ]:
+    # Direct match for empty or negative indicator tokens or conversational refusal
+    if is_empty_or_refusal_response(cleaned):
         return ""
 
     cleaned = cleaned.replace('[', '').replace(']', '').replace('"', '').replace("'", '')
@@ -586,8 +610,15 @@ def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
     
     noise_indicators = [
         "no food", "no ingredients", "none detected", "empty refrigerator", "empty fridge",
-        "empty plate", "not food", "non-food", "nothing visible"
+        "empty plate", "not food", "non-food", "nothing visible", "not a food"
     ]
+
+    conversational_words = {
+        "is", "are", "was", "were", "its", "it's", "ive", "i've", "there", "this", "image",
+        "picture", "photo", "extract", "feel", "free", "share", "shows", "examine", "examined",
+        "empty", "open", "closed", "style", "section", "compartment", "control", "thermostat",
+        "led", "light", "happily", "actual", "meal", "item", "items", "double-door", "top-freezer"
+    }
     
     lines = []
     for part in cleaned.split('\n'):
@@ -597,10 +628,19 @@ def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
                 continue
             s_lower = s.lower()
             
+            # Words count check: Genuine ingredient is 1 to 4 words
+            words = s_lower.split()
+            if len(words) > 4:
+                continue
+
+            # Check if any conversational/non-ingredient words exist
+            if any(w.strip('.,!?:;*`"') in conversational_words for w in words):
+                continue
+            
             # Check noise indicators
             if any(ind in s_lower for ind in noise_indicators):
                 continue
-            if s_lower in ["none", "empty", "nothing", "n/a", "nil", "unknown"]:
+            if s_lower in ["none", "empty", "nothing", "n/a", "nil", "unknown", "silence"]:
                 continue
                 
             # Filter out refrigerator structures (doors, shelves, drawers, etc.)
