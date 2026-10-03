@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import base64
 import time
 import requests
@@ -528,7 +529,20 @@ def _extract_ingredient_fn(image_input: str = None, **kwargs) -> str:
         raise ValueError("No image path provided to the extract ingredients tool.")
         
     encoded_image = validate_and_preprocess_image(str(val))
-    return call_llm_vision("Extract ingredients from the food item image", encoded_image)
+    prompt = (
+        "You are an expert food and grocery vision recognition system.\n"
+        "Carefully analyze this image and detect ONLY genuine, visible, edible food items or grocery ingredients "
+        "(e.g., vegetables, fruits, dairy, meats, condiments, beverages, pantry items).\n\n"
+        "CRITICAL RULES:\n"
+        "1. DO NOT identify or mention appliances, kitchen fixtures, or refrigerator structures such as doors, shelves, "
+        "glass shelves, wire racks, crisper drawers, door bins, storage trays, walls, handles, packaging, or empty containers. "
+        "These are NOT food ingredients under any circumstances.\n"
+        "2. If the image shows an empty refrigerator, empty shelves, empty containers, or contains NO edible food or ingredients, "
+        "respond STRICTLY with: NO_FOOD_DETECTED\n"
+        "3. If edible food ingredients are present, return ONLY a concise comma-separated list of the food items "
+        "(e.g. 'eggs, whole milk, cheddar cheese, apples'). Do not include explanation, bullet points, numbers, or chain-of-thought."
+    )
+    return call_llm_vision(prompt, encoded_image)
 
 
 class ExtractIngredientsTool:
@@ -537,7 +551,7 @@ class ExtractIngredientsTool:
 
 @tool("Filter ingredients")
 def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
-    """Processes raw ingredient data (either as a list or a text block/string) and filters out non-food items or noise.
+    """Processes raw ingredient data (either as a list or a text block/string) and filters out non-food items, noise, and refrigerator fixtures.
     Returns a clean, comma-separated string of ingredients."""
     val = raw_ingredients
     if val is None:
@@ -554,15 +568,59 @@ def _filter_ingredients_fn(raw_ingredients: str = None, **kwargs) -> str:
     else:
         cleaned = str(val)
         
+    cleaned_lower = cleaned.strip().lower()
+    # Direct match for empty or negative indicator tokens
+    if not cleaned_lower or cleaned_lower in [
+        "no_food_detected", "no food detected", "no_ingredients_detected", "no ingredients detected",
+        "none", "empty", "nothing", "nil", "n/a", "empty refrigerator", "empty fridge"
+    ]:
+        return ""
+
     cleaned = cleaned.replace('[', '').replace(']', '').replace('"', '').replace("'", '')
+    
+    # Non-food refrigerator parts, fixtures, appliances, and materials
+    fixture_pattern = re.compile(
+        r'\b(shel(?:f|ves)|doors?|crispers?|drawers?|refrigerators?|fridges?|freezers?|interiors?|walls?|handles?|appliances?|compartments?)\b',
+        re.IGNORECASE
+    )
+    
+    noise_indicators = [
+        "no food", "no ingredients", "none detected", "empty refrigerator", "empty fridge",
+        "empty plate", "not food", "non-food", "nothing visible"
+    ]
     
     lines = []
     for part in cleaned.split('\n'):
         for subpart in part.split(','):
             s = subpart.strip().strip('-*•0123456789. ')
-            if s:
-                lines.append(s.lower())
+            if not s:
+                continue
+            s_lower = s.lower()
+            
+            # Check noise indicators
+            if any(ind in s_lower for ind in noise_indicators):
+                continue
+            if s_lower in ["none", "empty", "nothing", "n/a", "nil", "unknown"]:
+                continue
                 
+            # Filter out refrigerator structures (doors, shelves, drawers, etc.)
+            if fixture_pattern.search(s_lower):
+                continue
+                
+            # Filter racks (unless meat rack like 'rack of lamb')
+            if re.search(r'\bracks?\b', s_lower) and not any(m in s_lower for m in ['lamb', 'pork', 'rib', 'veal', 'beef', 'meat']):
+                continue
+                
+            # Filter trays (ice tray, drip tray, egg tray)
+            if re.search(r'\btrays?\b', s_lower):
+                continue
+                
+            # Filter bins (door bin, storage bin)
+            if re.search(r'\bbins?\b', s_lower):
+                continue
+                
+            lines.append(s_lower)
+            
     return ", ".join(lines)
 
 
@@ -590,6 +648,10 @@ def _filter_based_on_restrictions_fn(ingredients: str = None, dietary_restrictio
     else:
         ingredients_str = str(val)
         
+    ingredients_str = ingredients_str.strip()
+    if not ingredients_str or ingredients_str.lower() in ["no_food_detected", "none", "empty"]:
+        return ""
+
     if not dietary_restrictions:
         return ingredients_str
         
@@ -625,25 +687,47 @@ def _analyze_image_fn(image_input: str = None, **kwargs) -> str:
     encoded_image = validate_and_preprocess_image(str(val))
     
     assistant_prompt = """
-    You are an expert nutritionist. Analyze the food items displayed in the image and provide a JSON response strictly adhering to the JSON schema below with no Markdown formatting or codeblock wrappers:
-    {
-      "dish": "<Identified dish name, e.g. Corn Dogs>",
-      "portion_size": "<Portion size description, e.g. 3 corn dogs>",
-      "estimated_calories": <Total calories as integer, e.g. 450>,
-      "nutrients": {
-        "protein": "<Protein amount with units, e.g. 14g>",
-        "carbohydrates": "<Carbohydrates amount with units, e.g. 48g>",
-        "fats": "<Fats amount with units, e.g. 22g>",
-        "vitamins": [
-          {"name": "Vitamin Name", "percentage_dv": "10%"}
-        ],
-        "minerals": [
-          {"name": "Mineral Name", "amount": "150mg"}
-        ]
-      },
-      "health_evaluation": "<One paragraph health & nutritional evaluation summary>"
-    }
-    Ensure valid JSON output.
+    You are an expert nutritionist and visual food analyst.
+    Analyze the uploaded image to assess the meal or food items.
+    
+    CRITICAL INSTRUCTIONS:
+    1. Check if the image contains any real, edible food dishes, prepared meals, or grocery items.
+    2. STRICTLY IGNORE all non-food background elements, including refrigerator parts, shelves, doors, racks, crisper drawers, containers, empty plates, cutlery, or appliances.
+    3. IF NO EDIBLE FOOD IS DETECTED (e.g. an empty refrigerator, empty shelves, empty plate, non-food photo):
+       You MUST return strictly the following JSON:
+       {
+         "dish": "No Food Detected",
+         "portion_size": "N/A",
+         "estimated_calories": 0,
+         "nutrients": {
+           "protein": "0g",
+           "carbohydrates": "0g",
+           "fats": "0g",
+           "vitamins": [],
+           "minerals": []
+         },
+         "health_evaluation": "No edible food items or dishes were detected in this image. The refrigerator or space appears to be empty. Please upload an image with visible food to analyze."
+       }
+    4. IF FOOD IS DETECTED:
+       Provide a JSON response strictly adhering to the JSON schema below:
+       {
+         "dish": "<Identified dish or food items name, e.g. Grilled Chicken Salad>",
+         "portion_size": "<Portion size description, e.g. 1 bowl (350g)>",
+         "estimated_calories": <Total calories as integer, e.g. 450>,
+         "nutrients": {
+           "protein": "<Protein amount with units, e.g. 35g>",
+           "carbohydrates": "<Carbohydrates amount with units, e.g. 18g>",
+           "fats": "<Fats amount with units, e.g. 12g>",
+           "vitamins": [
+             {"name": "Vitamin Name", "percentage_dv": "15%"}
+           ],
+           "minerals": [
+             {"name": "Mineral Name", "amount": "150mg"}
+           ]
+         },
+         "health_evaluation": "<One paragraph health & nutritional evaluation summary>"
+       }
+    Ensure valid JSON output with no markdown formatting or codeblock wrappers.
     """
     return call_llm_vision(assistant_prompt, encoded_image)
 

@@ -185,6 +185,15 @@ class NourishBotRecipeCrew(BaseNourishBotCrew):
         # Step 2: Filter raw ingredients
         filtered_ingredients = FilterIngredientsTool.filter_ingredients(raw_ingredients=raw_ingredients)
 
+        # Handle empty refrigerator or non-food image
+        if not filtered_ingredients or not filtered_ingredients.strip() or filtered_ingredients.strip().lower() in ["no_food_detected", "none", "empty"]:
+            logging.info("[NourishBotRecipeCrew] No food ingredients detected in image. Refrigerator or space appears empty.")
+            empty_payload = {
+                "recipes": [],
+                "message": "No food ingredients or edible grocery items were detected in the uploaded image. The refrigerator appears to be empty."
+            }
+            return CrewOutput(data_dict=empty_payload, raw_text=json.dumps(empty_payload))
+
         # Step 3: Filter based on dietary restrictions
         if dietary and str(dietary).strip():
             compliant_ingredients = DietaryFilterTool.filter_based_on_restrictions(
@@ -193,6 +202,14 @@ class NourishBotRecipeCrew(BaseNourishBotCrew):
             )
         else:
             compliant_ingredients = filtered_ingredients
+
+        if not compliant_ingredients or not compliant_ingredients.strip():
+            logging.info("[NourishBotRecipeCrew] No ingredients remained after dietary filtering.")
+            empty_payload = {
+                "recipes": [],
+                "message": f"None of the detected ingredients match your dietary restriction ({dietary}). Please try another meal image or adjust your dietary restrictions."
+            }
+            return CrewOutput(data_dict=empty_payload, raw_text=json.dumps(empty_payload))
 
         # Step 4: Recipe suggestion prompt using text LLM
         prompt = f"""You are an expert chef and nutritionist.

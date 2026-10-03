@@ -106,6 +106,8 @@ def format_recipe_output(final_output):
             output += f"    </div>\n"
             output += f"  </div>\n"
             output += f"</div>\n<br>\n"
+    elif isinstance(final_output, dict) and final_output.get("message"):
+        output += f"<div class='empty-state'>⚠️ {final_output['message']}</div>"
     elif raw_text_fallback:
         formatted_raw = raw_text_fallback.replace("\n", "<br>")
         output += f"<div class='recipe-card'>\n"
@@ -113,7 +115,7 @@ def format_recipe_output(final_output):
         output += f"  <div class='recipe-body'><p class='instructions-text'>{formatted_raw}</p></div>\n"
         output += f"</div><br>\n"
     else:
-        output += "<div class='empty-state'>⚠️ No recipes could be generated with the given inputs. Please try another image.</div>"
+        output += "<div class='empty-state'>⚠️ No recipes could be generated with the given inputs. Please upload an image with visible food items or groceries.</div>"
     
     output += "</div>"
     return output
@@ -137,7 +139,20 @@ def format_analysis_output(final_output):
 
     dish = final_output.get('dish') or 'Analyzed Meal'
     portion = final_output.get('portion_size') or 'Standard Portion'
-    est_cal = final_output.get('estimated_calories') or final_output.get('total_calories') or 'N/A'
+    est_cal = final_output.get('estimated_calories')
+    if est_cal is None:
+        est_cal = final_output.get('total_calories') or 'N/A'
+
+    # Check for empty / no food detected state
+    dish_str = str(dish).strip().lower()
+    if dish_str in ["no food detected", "no food", "none", "empty refrigerator", "empty fridge", "not food"]:
+        eval_msg = final_output.get('health_evaluation') or "No food or meal was detected in the uploaded image. The refrigerator appears to be empty."
+        output += f"<div class='empty-state' style='padding: 24px; text-align: center;'>\n"
+        output += f"  <h3 style='margin-bottom: 8px; color: #f59e0b;'>⚠️ No Food Detected</h3>\n"
+        output += f"  <p style='color: var(--text-secondary, #94a3b8); margin: 0;'>{eval_msg}</p>\n"
+        output += f"</div>\n"
+        output += "</div>"
+        return output
 
     output += f"<div class='summary-banner'>\n"
     output += f"  <div class='summary-item'><span class='summary-label'>🍱 Identified Dish</span><span class='summary-val'>{dish}</span></div>\n"

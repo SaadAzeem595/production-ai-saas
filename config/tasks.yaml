@@ -1,16 +1,18 @@
 ingredient_detection_task:
   description: >
-    Use the ingredient extraction tool to identify the ingredients from the image path '{uploaded_image}'.
-    Do not attempt to generate, create, or draw any new images. Your task is strictly to analyze the existing image using your tools.
-    After extracting the ingredients, filter the raw list using the ingredient filtering tool.
+    Use the ingredient extraction tool to identify edible ingredients from the image path '{uploaded_image}'.
+    Strictly identify only edible food and grocery items. Do NOT detect refrigerator parts, shelves, doors, racks, containers, or non-food items.
+    If the image shows an empty refrigerator or space with no food, confirm that no ingredients are present.
+    Filter the raw list using the ingredient filtering tool to eliminate any non-food noise.
   agent: ingredient_detection_agent
   expected_output: >
-    A list of detected ingredients from the image.
+    A comma-separated list of genuine edible ingredients detected in the image, or an empty indication if no food was detected.
 
 dietary_filtering_task:
   description: >
     Filter the detected ingredients based on user-provided {dietary_restrictions}, if provided.
     If no dietary restriction is provided, keep the list as is and move to the next step.
+    If no food ingredients were detected, safely propagate the empty state forward.
     Perform the filtering operation only once to prevent repetitive processing.
   agent: dietary_filtering_agent
   expected_output: >
@@ -19,10 +21,11 @@ dietary_filtering_task:
 nutrient_analysis_task:
   description: >
     Analyze the food image at '{uploaded_image}' using the nutritional analysis tool.
-    Do not attempt to generate, create, or draw any new images. Your task is strictly to analyze the existing image using your tools.
-    Identify the dish name, portion size, total estimated calories, macro breakdown (protein, carbohydrates, fats), 
+    Verify whether actual edible food or a meal is present in the image. Ignore refrigerator components, empty shelves, doors, and non-food items.
+    If food is present, identify the dish name, portion size, total estimated calories, macro breakdown (protein, carbohydrates, fats), 
     vitamins, minerals, and a health evaluation for the dish.
-    Output your final response in valid JSON with keys: 'dish', 'portion_size', 'estimated_calories', 'nutrients' (with 'protein', 'carbohydrates', 'fats', 'vitamins', 'minerals'), and 'health_evaluation'.
+    If no food is present (e.g., an empty refrigerator), return 'No Food Detected' with zero calories and an explanatory health evaluation.
+    Output your final response in valid JSON matching the NutrientAnalysisOutput schema.
   agent: nutrient_analysis_agent
   expected_output: >
     A JSON object matching NutrientAnalysisOutput schema.
@@ -30,6 +33,7 @@ nutrient_analysis_task:
 recipe_suggestion_task:
   description: >
     Generate recipe ideas using the filtered ingredients and ensure they fit within the user’s calorie goal and dietary restrictions.
+    If no valid food ingredients are available (for example, if the refrigerator was empty), clearly inform the user that no recipes can be suggested without ingredients.
   agent: recipe_suggestion_agent
   expected_output: >
-    Suggested recipes based on the filtered ingredients.
+    Suggested recipes based on the filtered ingredients, or an informative message if no ingredients are present.
